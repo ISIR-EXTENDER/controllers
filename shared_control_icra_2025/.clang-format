@@ -1,0 +1,6 @@
+Language: Cpp
+BasedOnStyle: Microsoft
+IndentWidth: 2
+AllowShortFunctionsOnASingleLine: None
+ColumnLimit: 100
+NamespaceIndentation: All

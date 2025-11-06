@@ -1,0 +1,27 @@
+# Ignore build, install, and log directories
+/build/
+/install/
+/log/
+
+# Ignore generated files and caches
+*.pyc
+__pycache__/
+
+# Ignore local settings and editor temporary files
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# Optionally ignore other OS-specific files
+.DS_Store
+
+# Ignore vscode workspace config
+*.vscode
+
+# Plots
+*.jpg
+
+# Ignore local data
+data/*
+rosbag*
