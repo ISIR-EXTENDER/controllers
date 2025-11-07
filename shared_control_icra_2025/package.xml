@@ -13,6 +13,7 @@
   <test_depend>ament_lint_common</test_depend>
 
   <export>
+    <pluginlib plugin="${prefix}/config/cartesian_velocity_controller.xml"/>
     <build_type>ament_cmake</build_type>
   </export>
 </package>

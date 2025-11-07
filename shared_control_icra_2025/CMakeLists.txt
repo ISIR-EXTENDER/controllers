@@ -43,7 +43,7 @@ install(TARGETS
 )
 
 # Install the entire config directory (containing controllers.yaml + plugin XML)
-install(DIRECTORY config
+install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 

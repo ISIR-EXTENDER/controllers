@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
-<library path="cartesian_velocity_controller">
-  <class name="cartesian_velocity_controller/CartesianVelocityTeleopController"
+<library path="shared_control_icra_2025">
+  <class name="shared_control_icra_2025/CartesianVelocityTeleopController"
          type="cartesian_velocity_controller::CartesianVelocityTeleopController"
          base_class_type="controller_interface::ControllerInterface">
     <description>
