@@ -85,7 +85,7 @@ def generate_launch_description():
             executable='spawner',
             arguments=["cartesian_velocity_teleop_controller",
                    "-c", "controller_manager",
-                   "-t", "cartesian_velocity_controller/CartesianVelocityTeleopController",
+                   "-t", "shared_control_icra_2025/CartesianVelocityTeleopController",
                    "--param-file", config_file
                   ],
             output='screen',
