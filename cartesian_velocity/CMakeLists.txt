@@ -12,6 +12,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(robot_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(joystick_interface REQUIRED)
 
 include_directories(
   include
@@ -27,6 +28,7 @@ ament_target_dependencies(${PROJECT_NAME}
   geometry_msgs
   robot_interfaces
   Eigen3
+  joystick_interface
 )
 
 # Register your controller class as a component

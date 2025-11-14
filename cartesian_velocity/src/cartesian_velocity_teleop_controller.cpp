@@ -52,8 +52,8 @@ namespace cartesian_velocity_controller
   CallbackReturn CartesianVelocityTeleopController::on_init()
   {
     // Create a subscription to the "cmd_vel" topic to receive teleoperation commands.
-    twist_sub_ = get_node()->create_subscription<geometry_msgs::msg::Twist>(
-        "cmd_vel", 10,
+    twist_sub_ = get_node()->create_subscription<joystick_interface::msg::TeleopCmd>(
+        "/teleop_cmd", 10,
         std::bind(&CartesianVelocityTeleopController::twistCallback, this, std::placeholders::_1));
 
     return CallbackReturn::SUCCESS;
@@ -190,10 +190,10 @@ namespace cartesian_velocity_controller
   }
 
   void CartesianVelocityTeleopController::twistCallback(
-      const geometry_msgs::msg::Twist::SharedPtr msg)
+      const joystick_interface::msg::TeleopCmd::SharedPtr msg)
   {
     // Update the stored Twist command with the latest message.
-    latest_twist_ = *msg;
+    latest_twist_ = msg->twist;
   }
 
 } // namespace cartesian_velocity_controller

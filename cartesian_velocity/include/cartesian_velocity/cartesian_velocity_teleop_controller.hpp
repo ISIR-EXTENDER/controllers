@@ -11,6 +11,7 @@
 
 #include "robot_interfaces/generic_component.hpp"
 #include "robot_interfaces/robot_interfaces_algos.hpp"
+#include "joystick_interface/msg/teleop_cmd.hpp"
 
 namespace cartesian_velocity_controller
 {
@@ -41,7 +42,7 @@ namespace cartesian_velocity_controller
 
   private:
     /// Callback to receive Twist commands from the teleop node.
-    void twistCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+    void twistCallback(const joystick_interface::msg::TeleopCmd::SharedPtr msg);
 
     /// Generic component to interface with robot hardware
     std::unique_ptr<robot_interfaces::GenericComponent> robot_vel_interface_;
@@ -53,7 +54,7 @@ namespace cartesian_velocity_controller
     geometry_msgs::msg::Twist smoothed_twist_;
 
     /// Subscription for teleop Twist commands.
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr twist_sub_;
+    rclcpp::Subscription<joystick_interface::msg::TeleopCmd>::SharedPtr twist_sub_;
 
     /// Overall scaling of the computed velocity command.
     double gain_;
