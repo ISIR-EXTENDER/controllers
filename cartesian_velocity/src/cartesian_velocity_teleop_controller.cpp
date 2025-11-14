@@ -1,4 +1,4 @@
-#include "shared_control_icra_2025/cartesian_velocity_teleop_controller.hpp"
+#include "cartesian_velocity/cartesian_velocity_teleop_controller.hpp"
 
 #include "pluginlib/class_list_macros.hpp"
 
@@ -175,7 +175,7 @@ namespace cartesian_velocity_controller
                                                gain_ * smoothed_twist_.angular.y,
                                                gain_ * smoothed_twist_.angular.z);
 
-    robot_interfaces::CartesianVelocityCommand vel_cmd;
+    robot_interfaces::CartesianVelocity vel_cmd;
     vel_cmd.linear = cartesian_linear_velocity;
     vel_cmd.angular = cartesian_angular_velocity;
     if (robot_vel_interface_->setCommand(vel_cmd))

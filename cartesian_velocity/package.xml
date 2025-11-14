@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>shared_control_icra_2025</name>
+  <name>cartesian_velocity</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="megane@todo.todo">megane</maintainer>

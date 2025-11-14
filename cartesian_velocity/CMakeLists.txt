@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(shared_control_icra_2025)
+project(cartesian_velocity)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -44,12 +44,6 @@ install(TARGETS
 
 # Install the entire config directory (containing controllers.yaml + plugin XML)
 install(DIRECTORY config launch
-  DESTINATION share/${PROJECT_NAME}
-)
-
-# Install the launch directory
-install(DIRECTORY
-  launch config
   DESTINATION share/${PROJECT_NAME}
 )
 

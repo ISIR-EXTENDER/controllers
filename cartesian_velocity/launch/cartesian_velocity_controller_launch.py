@@ -23,7 +23,7 @@ def generate_launch_description():
 
     # Absolute path to the configuration file for the custom controller
     config_file = PathJoinSubstitution([
-        FindPackageShare('shared_control_icra_2025'),
+        FindPackageShare('cartesian_velocity'),
         'config',
         'controllers.yaml'
     ])
