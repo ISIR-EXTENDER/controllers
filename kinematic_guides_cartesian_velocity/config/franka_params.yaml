@@ -1,0 +1,66 @@
+kinematic_guides_cartesian_velocity:
+  ros__parameters:
+    # Activate / desactivate functions
+    enable_shared_control_assistance: true
+    enable_velocity_saturation: true
+    enable_debug_publish: true
+
+    # Low-pass filter
+    #filter_cutoff_frequency: 0.8 # Hz
+    initial_filter_cutoff_frequency: 2.0 # Hz
+    final_filter_cutoff_frequency: 5.0 # Hz
+
+    # Multi-target estimation: all goals are 6D
+    # Default gripper orientation quaternion: [1.000, 0.003, 0.004, -0.001]
+    goals_poses: [0.605, 0.220, 0.278, 1.000, 0.003, 0.004, -0.001,
+                    0.637, -0.140, 0.240, 1.000, 0.003, 0.004, -0.001] # experiment with two goals and changing target on run
+    #goals_poses: [0.539, -0.066, 0.364, 0.901, 0.021, 0.433, 0.009] # experiment with 6D goal close
+    # NOTE: quaternion order is (qx, qy, qz, qw) and should be unit-norm.
+
+    known_goals_poses: [0.605, 0.220, 0.278, 1.000, 0.003, 0.004, -0.001,
+                    0.637, -0.140, 0.240, 1.000, 0.003, 0.004, -0.001] # experiment with two goals and changing target on run
+    #known_goals_poses: [0.539, -0.066, 0.364, 0.901, 0.021, 0.433, 0.009] # experiment with 6D goal close
+    known_goals_labels:    ["Bin A", "Bin B"]
+
+    # Cartesian velocity saturation
+    max_linear_delta: 0.0005
+    max_angular_delta: 0.0005
+
+    # Goals confidence 
+    alpha_conf:    1.5        # [s^-1] #after fix in eq of c_dot using the normalization
+    theta_l_deg:   15.0       # [deg]
+    r1:            0.04       # [m]
+    r2:            0.02       # [m]
+    v_j_max:       0.055      # [m/s]
+    gamma:         2.0
+    theta1_deg:    15.0       # [deg]
+    theta2_deg:    5.0        # [deg]
+    # Reach goal params
+    eps_t_reach_m:    0.01
+    eps_r_reach_deg:  10.0
+    reach_dwell_ms:   300
+    robot_type: "franka_velocity"
+
+goal_marker_publisher:
+  ros__parameters:
+    # ----------------- Frames -----------------
+    base_frame: "base"
+    ee_frame:   "fr3_hand_tcp"    # apex for cones + agnostic sphere
+
+    # ----------------- Geometry / viz -----------------
+    r1:            0.04       # [m]
+    r2:            0.02       # [m]
+    theta_l_deg:  25.0
+    rate_hz:      15.0
+    draw_vectors: true            # draw u1 (cyan) and vE (red)
+    ve_scale:     5.0             # visual scale for vE arrow
+
+    # ----------------- Topics (must match controller pubs) -----------------
+    conf_topic:         "/debug/goal_confidences"
+    soft_goal_topic:    "/debug/soft_goal"
+    raw_velocity_topic: "/debug/raw_velocity"
+
+    goal_positions: [0.605, 0.220, 0.278,
+                    0.637, -0.140, 0.240] # experiment with two goals and changing target on run
+    #goal_positions: [0.539, -0.066, 0.364, 0.901, 0.021, 0.433, 0.009] # experiment with 6D goal close
+    
