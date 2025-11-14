@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<library path="kinematic_guides_cartesian_velocity">
+  <class name="kinematic_guides_cartesian_velocity/SharedControlVelocityController"
+         type="cartesian_velocity_controller::SharedControlVelocityController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      A velocity Cartesian teleoperation controller.
+    </description>
+  </class>
+</library>

@@ -1,0 +1,62 @@
+cmake_minimum_required(VERSION 3.8)
+project(kinematic_guides_cartesian_velocity)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(robot_interfaces REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(joystick_interface REQUIRED)
+
+include_directories(
+  include
+  ${EIGEN3_INCLUDE_DIRS}
+)
+
+add_library(${PROJECT_NAME} SHARED
+  src/shared_control_cartesian_velocity.cpp
+)
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  rclcpp_components
+  geometry_msgs
+  robot_interfaces
+  Eigen3
+  joystick_interface
+)
+
+# Register your controller class as a component
+rclcpp_components_register_nodes(${PROJECT_NAME}
+  "cartesian_velocity_controller::SharedControlVelocityController"
+)
+
+# Install the library
+install(TARGETS
+  ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+# Install the entire config directory (containing controllers.yaml + plugin XML)
+install(DIRECTORY config launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Install the launch directory
+install(DIRECTORY
+  launch config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Export using pluginlib so the controller_interface can find the custom controller
+pluginlib_export_plugin_description_file(
+        controller_interface config/kinematic_guides_cartesian.xml)
+
+ament_package()
