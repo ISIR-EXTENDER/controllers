@@ -1,0 +1,37 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    fault_controller:
+      type: picknik_reset_fault_controller/PicknikResetFaultController
+
+    robotiq_gripper_controller:
+      type: position_controllers/GripperActionController
+
+    cartesian_velocity_teleop_controller:
+      type: cartesian_velocity/CartesianVelocityTeleopController
+
+joint_state_broadcaster:
+  ros__parameters: {}
+
+fault_controller:
+  ros__parameters: {}
+
+robotiq_gripper_controller:
+  ros__parameters:
+    default: true
+    joint: robotiq_85_left_knuckle_joint 
+    allow_stalling: true
+
+cartesian_velocity_teleop_controller:
+  ros__parameters:
+    robot_type: "kinova_velocity"
+    base_frame: "base_link"
+    tool_frame: "tool_frame"
+    gain: 1.0
+    alpha: 1.0 #0.005
+    max_linear_delta: 0.007
+    max_angular_delta: 10.0
