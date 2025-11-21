@@ -15,7 +15,16 @@ controller_manager:
       type: cartesian_velocity/CartesianVelocityTeleopController
 
 joint_state_broadcaster:
-  ros__parameters: {}
+  ros__parameters:
+    joints:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+      - joint_7
+      - finger_joint  
 
 fault_controller:
   ros__parameters: {}
@@ -23,7 +32,7 @@ fault_controller:
 robotiq_gripper_controller:
   ros__parameters:
     default: true
-    joint: robotiq_85_left_knuckle_joint 
+    joint: finger_joint
     allow_stalling: true
 
 cartesian_velocity_teleop_controller:
