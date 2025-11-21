@@ -70,8 +70,13 @@ namespace cartesian_velocity_controller
     /// Overall scaling of the computed velocity command.
     double gain_;
 
-    /// Filter and saturation parameters.
-    double alpha_;
+    // Low-pass filter configuration
+    // Cutoff frequency [Hz] for the first-order LPF applied to joystick twist.
+    double initial_filter_cutoff_frequency_;
+    // Flag to initialise filter memory on first update.
+    bool lpf_initialized_{false};
+
+    /// Cartesian velocity saturation parameters.
     double max_linear_delta_;
     double max_angular_delta_;
   };

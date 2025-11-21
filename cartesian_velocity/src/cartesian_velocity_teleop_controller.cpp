@@ -67,9 +67,10 @@ namespace cartesian_velocity_controller
     {
       get_node()->declare_parameter("gain", 1.0);
     }
-    if (!get_node()->has_parameter("alpha"))
+    if (!get_node()->has_parameter("initial_filter_cutoff_frequency"))
     {
-      get_node()->declare_parameter("alpha", 0.005);
+      // Same name/semantics as in SharedControlVelocityController
+      get_node()->declare_parameter("initial_filter_cutoff_frequency", 0.8);
     }
     if (!get_node()->has_parameter("max_linear_delta"))
     {
@@ -80,15 +81,18 @@ namespace cartesian_velocity_controller
       get_node()->declare_parameter("max_angular_delta", 0.014);
     }
 
-    // Read controller and filter parameter from server.
+    // Read controller and filter parameters from server.
     gain_ = get_node()->get_parameter("gain").as_double();
-    alpha_ = get_node()->get_parameter("alpha").as_double();
+    initial_filter_cutoff_frequency_ =
+        get_node()->get_parameter("initial_filter_cutoff_frequency").as_double();
     max_linear_delta_ = get_node()->get_parameter("max_linear_delta").as_double();
     max_angular_delta_ = get_node()->get_parameter("max_angular_delta").as_double();
 
     // Print the parameters on console.
     RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Controller - gain: %.4f", gain_);
-    RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Controller - alpha: %.4f", alpha_);
+    RCLCPP_INFO(get_node()->get_logger(),
+                "Cartesian Velocity Controller - initial_filter_cutoff_frequency: %.4f",
+                initial_filter_cutoff_frequency_);
     RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Controller - max_linear_delta: %.4f",
                 max_linear_delta_);
     RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Controller - max_angular_delta: %.4f",
@@ -102,6 +106,11 @@ namespace cartesian_velocity_controller
                    robot_type.c_str());
       return CallbackReturn::ERROR;
     }
+
+    // Reset LPF state
+    smoothed_twist_ = geometry_msgs::msg::Twist{};
+    lpf_initialized_ = false;
+
     return CallbackReturn::SUCCESS;
   }
 
@@ -121,7 +130,7 @@ namespace cartesian_velocity_controller
   }
 
   controller_interface::return_type CartesianVelocityTeleopController::update(
-      const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+      const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
   {
     // Start from the latest commanded twist and apply teleop mode selection.
     geometry_msgs::msg::Twist mode_filtered_twist = latest_twist_;
@@ -147,24 +156,40 @@ namespace cartesian_velocity_controller
       break;
     }
 
+    // Compute alpha from desired cutoff frequency: alpha = T / (T + tau)
+    const double dt_sec = period.seconds();
+    double alpha = 1.0; // default: passthrough if fc <= 0 or dt <= 0
+    if (initial_filter_cutoff_frequency_ > 0.0 && dt_sec > 0.0)
+    {
+      const double tau = 1.0 / (2.0 * M_PI * initial_filter_cutoff_frequency_);
+      alpha = std::clamp(dt_sec / (dt_sec + tau), 1e-9, 1.0 - 1e-9);
+    }
+
+    // On first run, initialise smoothed_twist_ to avoid startup transients.
+    if (!lpf_initialized_)
+    {
+      smoothed_twist_ = mode_filtered_twist;
+      lpf_initialized_ = true;
+    }
+
     // Save the previous smoothed twist values to check the rate of change.
     geometry_msgs::msg::Twist previous_smoothed = smoothed_twist_;
 
     // Apply a low-pass filter to the latest twist command.
     // y[n] = alpha * x[n] + (1-alpha) * y[n-1]
-    smoothed_twist_.linear.x =
-        alpha_ * mode_filtered_twist.linear.x + (1.0 - alpha_) * smoothed_twist_.linear.x;
-    smoothed_twist_.linear.y =
-        alpha_ * mode_filtered_twist.linear.y + (1.0 - alpha_) * smoothed_twist_.linear.y;
-    smoothed_twist_.linear.z =
-        alpha_ * mode_filtered_twist.linear.z + (1.0 - alpha_) * smoothed_twist_.linear.z;
+    smoothed_twist_.linear.x = alpha * mode_filtered_twist.linear.x +
+                               (1.0 - alpha) * smoothed_twist_.linear.x;
+    smoothed_twist_.linear.y = alpha * mode_filtered_twist.linear.y +
+                               (1.0 - alpha) * smoothed_twist_.linear.y;
+    smoothed_twist_.linear.z = alpha * mode_filtered_twist.linear.z +
+                               (1.0 - alpha) * smoothed_twist_.linear.z;
 
-    smoothed_twist_.angular.x =
-        alpha_ * mode_filtered_twist.angular.x + (1.0 - alpha_) * smoothed_twist_.angular.x;
-    smoothed_twist_.angular.y =
-        alpha_ * mode_filtered_twist.angular.y + (1.0 - alpha_) * smoothed_twist_.angular.y;
-    smoothed_twist_.angular.z =
-        alpha_ * mode_filtered_twist.angular.z + (1.0 - alpha_) * smoothed_twist_.angular.z;
+    smoothed_twist_.angular.x = alpha * mode_filtered_twist.angular.x +
+                                (1.0 - alpha) * smoothed_twist_.angular.x;
+    smoothed_twist_.angular.y = alpha * mode_filtered_twist.angular.y +
+                                (1.0 - alpha) * smoothed_twist_.angular.y;
+    smoothed_twist_.angular.z = alpha * mode_filtered_twist.angular.z +
+                                (1.0 - alpha) * smoothed_twist_.angular.z;
 
     // Rate limiting: limit the velocity change between cycles to avoid discontinuties.
     // For each component, compute the difference and clamp if necessary.

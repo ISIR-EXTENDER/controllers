@@ -32,6 +32,6 @@ cartesian_velocity_teleop_controller:
     base_frame: "base_link"
     tool_frame: "tool_frame"
     gain: 1.0
-    alpha: 1.0 #0.005
+    initial_filter_cutoff_frequency: 2.0
     max_linear_delta: 0.007
     max_angular_delta: 10.0
