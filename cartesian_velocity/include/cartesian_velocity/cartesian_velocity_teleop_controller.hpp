@@ -41,6 +41,17 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
+    // Teleoperation Mode (aligned with joystick_interface/TeleopCmd constants)
+    enum class TeleopMode
+    {
+      Translation_Rotation,
+      Rotation,
+      Translation,
+      Both
+    };
+
+    TeleopMode mode_{TeleopMode::Translation_Rotation};
+
     /// Callback to receive Twist commands from the teleop node.
     void twistCallback(const joystick_interface::msg::TeleopCmd::SharedPtr msg);
 

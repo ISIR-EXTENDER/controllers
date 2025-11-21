@@ -123,27 +123,48 @@ namespace cartesian_velocity_controller
   controller_interface::return_type CartesianVelocityTeleopController::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
   {
+    // Start from the latest commanded twist and apply teleop mode selection.
+    geometry_msgs::msg::Twist mode_filtered_twist = latest_twist_;
+
+    switch (mode_)
+    {
+    case TeleopMode::Translation:
+      // Only translation: ignore angular component.
+      mode_filtered_twist.angular.x = 0.0;
+      mode_filtered_twist.angular.y = 0.0;
+      mode_filtered_twist.angular.z = 0.0;
+      break;
+    case TeleopMode::Rotation:
+      // Only rotation: ignore linear component.
+      mode_filtered_twist.linear.x = 0.0;
+      mode_filtered_twist.linear.y = 0.0;
+      mode_filtered_twist.linear.z = 0.0;
+      break;
+    case TeleopMode::Both:
+    case TeleopMode::Translation_Rotation:
+    default:
+      // Use both linear and angular components.
+      break;
+    }
 
     // Save the previous smoothed twist values to check the rate of change.
     geometry_msgs::msg::Twist previous_smoothed = smoothed_twist_;
 
     // Apply a low-pass filter to the latest twist command.
     // y[n] = alpha * x[n] + (1-alpha) * y[n-1]
-    const double alpha = 0.005; // Smoothing factor
-
     smoothed_twist_.linear.x =
-        alpha_ * latest_twist_.linear.x + (1.0 - alpha_) * smoothed_twist_.linear.x;
+        alpha_ * mode_filtered_twist.linear.x + (1.0 - alpha_) * smoothed_twist_.linear.x;
     smoothed_twist_.linear.y =
-        alpha_ * latest_twist_.linear.y + (1.0 - alpha_) * smoothed_twist_.linear.y;
+        alpha_ * mode_filtered_twist.linear.y + (1.0 - alpha_) * smoothed_twist_.linear.y;
     smoothed_twist_.linear.z =
-        alpha_ * latest_twist_.linear.z + (1.0 - alpha_) * smoothed_twist_.linear.z;
+        alpha_ * mode_filtered_twist.linear.z + (1.0 - alpha_) * smoothed_twist_.linear.z;
 
     smoothed_twist_.angular.x =
-        alpha_ * latest_twist_.angular.x + (1.0 - alpha_) * smoothed_twist_.angular.x;
+        alpha_ * mode_filtered_twist.angular.x + (1.0 - alpha_) * smoothed_twist_.angular.x;
     smoothed_twist_.angular.y =
-        alpha_ * latest_twist_.angular.y + (1.0 - alpha_) * smoothed_twist_.angular.y;
+        alpha_ * mode_filtered_twist.angular.y + (1.0 - alpha_) * smoothed_twist_.angular.y;
     smoothed_twist_.angular.z =
-        alpha_ * latest_twist_.angular.z + (1.0 - alpha_) * smoothed_twist_.angular.z;
+        alpha_ * mode_filtered_twist.angular.z + (1.0 - alpha_) * smoothed_twist_.angular.z;
 
     // Rate limiting: limit the velocity change between cycles to avoid discontinuties.
     // For each component, compute the difference and clamp if necessary.
@@ -194,6 +215,26 @@ namespace cartesian_velocity_controller
   {
     // Update the stored Twist command with the latest message.
     latest_twist_ = msg->twist;
+
+    // Store the teleoperation mode for use in update().
+    switch (msg->mode)
+    {
+    case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION:
+      mode_ = TeleopMode::Translation_Rotation;
+      break;
+    case joystick_interface::msg::TeleopCmd::ROTATION:
+      mode_ = TeleopMode::Rotation;
+      break;
+    case joystick_interface::msg::TeleopCmd::TRANSLATION:
+      mode_ = TeleopMode::Translation;
+      break;
+    case joystick_interface::msg::TeleopCmd::BOTH:
+      mode_ = TeleopMode::Both;
+      break;
+    default:
+      mode_ = TeleopMode::Translation_Rotation;
+      break;
+    }
   }
 
 } // namespace cartesian_velocity_controller
