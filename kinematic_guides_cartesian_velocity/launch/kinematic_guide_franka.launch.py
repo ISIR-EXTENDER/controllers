@@ -126,7 +126,7 @@ def launch_setup(context, *args, **kwargs):
     teleop_config_file = os.path.join(
         get_package_share_directory('joystick_interface'),
         'config',
-        'joystick_parameters.yaml'
+        'franka_joystick_parameters.yaml'
     )
     nodes.append(Node(
         package='joystick_interface',
@@ -137,7 +137,7 @@ def launch_setup(context, *args, **kwargs):
     ))
 
     # --- Gripper Node ---
-    teleop_config_file = os.path.join(
+    gripper_config_file = os.path.join(
         get_package_share_directory('joystick_interface'),
         'config',
         'franka_gripper_parameters.yaml'
@@ -146,7 +146,7 @@ def launch_setup(context, *args, **kwargs):
         package='joystick_interface',
         executable='franka_gripper_node',
         name='franka_gripper_node',
-        parameters=[teleop_config_file],
+        parameters=[gripper_config_file],
     ))
 
 
