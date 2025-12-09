@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<library path="joint_position_interpolator_lib">
+  <class name="joint_position_interpolator/JointPositionInterpolator"
+         type="joint_controllers::JointPositionInterpolator"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      A joint position controller. It takes a desired joint position and interpolate the 
+      joint trajectory to achieve it.
+    </description>
+  </class>
+</library>
