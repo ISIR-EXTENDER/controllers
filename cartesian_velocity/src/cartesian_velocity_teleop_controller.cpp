@@ -14,7 +14,8 @@ namespace cartesian_velocity_controller
 
   CartesianVelocityTeleopController::CartesianVelocityTeleopController()
       : ControllerInterface(), latest_twist_(), filtered_linear_(Eigen::Vector3d::Zero()),
-        filtered_angular_(Eigen::Vector3d::Zero())
+        filtered_angular_(Eigen::Vector3d::Zero()),
+        current_orientation_(Eigen::Quaterniond::Identity())
   {
     // Initialize twist command to zero
     latest_twist_.linear.x = 0.0;
@@ -41,9 +42,12 @@ namespace cartesian_velocity_controller
   controller_interface::InterfaceConfiguration CartesianVelocityTeleopController::
       state_interface_configuration() const
   {
-    // This controller does not use state interfaces
-    return controller_interface::InterfaceConfiguration{
-        controller_interface::interface_configuration_type::NONE};
+    controller_interface::InterfaceConfiguration config;
+    config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+    robot_vel_interface_->set_states_names();
+
+    config.names = robot_vel_interface_->get_states_names();
+    return config;
   }
 
   CallbackReturn CartesianVelocityTeleopController::on_init()
@@ -115,6 +119,7 @@ namespace cartesian_velocity_controller
   {
     // Assign the loaned command interfaces to the Franka Cartesian velocity interface
     robot_vel_interface_->assign_loaned_command(command_interfaces_);
+    robot_vel_interface_->assign_loaned_state(state_interfaces_);
     return CallbackReturn::SUCCESS;
   }
 
@@ -128,6 +133,11 @@ namespace cartesian_velocity_controller
   controller_interface::return_type CartesianVelocityTeleopController::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
+    // Get current EE pose.
+    robot_interfaces::CartesianPosition temp_pose =
+        robot_vel_interface_->getCurrentEndEffectorPose();
+    current_orientation_ = temp_pose.quaternion;
+
     // Convert the latest teleop Twist into raw Eigen vectors (no mode gating yet)
     Eigen::Vector3d raw_linear(latest_twist_.linear.x, latest_twist_.linear.y,
                                latest_twist_.linear.z);
@@ -167,6 +177,11 @@ namespace cartesian_velocity_controller
     // Apply teleop mode selection on the filtered Cartesian velocities
     Eigen::Vector3d cartesian_linear_velocity = filtered_linear_;
     Eigen::Vector3d cartesian_angular_velocity = filtered_angular_;
+
+    // Rotation from End-Effector frame to Base frame
+    const Eigen::Matrix3d R_BE = current_orientation_.toRotationMatrix();
+    // Convert joystick angular velocity (EE frame) to Base frame
+    cartesian_angular_velocity = R_BE * cartesian_angular_velocity;
 
     switch (mode_)
     {

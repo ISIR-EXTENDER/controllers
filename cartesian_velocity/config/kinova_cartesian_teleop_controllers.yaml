@@ -24,7 +24,7 @@ joint_state_broadcaster:
       - joint_5
       - joint_6
       - joint_7
-      - finger_joint  
+      - robotiq_85_left_knuckle_joint  
 
 fault_controller:
   ros__parameters: {}
@@ -32,14 +32,14 @@ fault_controller:
 robotiq_gripper_controller:
   ros__parameters:
     default: true
-    joint: finger_joint
+    joint: robotiq_85_left_knuckle_joint
     allow_stalling: true
 
 cartesian_velocity_teleop_controller:
   ros__parameters:
     robot_type: "kinova_velocity"
     base_frame: "base_link"
-    tool_frame: "tool_frame"
+    tool_frame: "end_effector_link"
     gain: 1.0
     initial_filter_cutoff_frequency: 2.0
     max_linear_delta: 0.007
