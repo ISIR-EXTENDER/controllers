@@ -73,6 +73,9 @@ namespace cartesian_velocity_controller
     /// Subscription for teleop Twist commands
     rclcpp::Subscription<joystick_interface::msg::TeleopCmd>::SharedPtr twist_sub_;
 
+    // Robot state
+    Eigen::Quaterniond current_orientation_;
+
     /// Overall scaling of the computed velocity command
     double gain_;
 
