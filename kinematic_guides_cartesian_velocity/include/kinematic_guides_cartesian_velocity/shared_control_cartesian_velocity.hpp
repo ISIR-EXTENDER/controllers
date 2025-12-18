@@ -224,6 +224,9 @@ namespace cartesian_velocity_controller
     double max_linear_delta_;
     double max_angular_delta_;
 
+    // Input twist frame selection: "base" or "ee"
+    std::string input_twist_frame_{"base"};
+
     // Plotting publishers
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr latest_twist_pub_;
     rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr initial_filtered_linear_velocity_pub_;

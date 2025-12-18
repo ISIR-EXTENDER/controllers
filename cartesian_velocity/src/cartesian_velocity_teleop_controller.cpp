@@ -81,6 +81,18 @@ namespace cartesian_velocity_controller
     {
       get_node()->declare_parameter("max_angular_delta", 0.014);
     }
+    if (!get_node()->has_parameter("base_frame"))
+    {
+      get_node()->declare_parameter("base_frame", "base_link");
+    }
+    if (!get_node()->has_parameter("tool_frame"))
+    {
+      get_node()->declare_parameter("tool_frame", "tool_frame");
+    }
+    if (!get_node()->has_parameter("input_twist_frame"))
+    {
+      get_node()->declare_parameter("input_twist_frame", "base");
+    }
 
     // Read controller and filter parameters from server
     gain_ = get_node()->get_parameter("gain").as_double();
@@ -88,6 +100,17 @@ namespace cartesian_velocity_controller
         get_node()->get_parameter("initial_filter_cutoff_frequency").as_double();
     max_linear_delta_ = get_node()->get_parameter("max_linear_delta").as_double();
     max_angular_delta_ = get_node()->get_parameter("max_angular_delta").as_double();
+    input_twist_frame_ = get_node()->get_parameter("input_twist_frame").as_string();
+    // Sanitize
+    std::transform(input_twist_frame_.begin(), input_twist_frame_.end(), input_twist_frame_.begin(),
+                   ::tolower);
+    if (input_twist_frame_ != "base" && input_twist_frame_ != "ee")
+    {
+      RCLCPP_WARN(get_node()->get_logger(),
+                  "Invalid input_twist_frame '%s'. Use 'base' or 'ee'. Defaulting to 'base'.",
+                  input_twist_frame_.c_str());
+      input_twist_frame_ = "base";
+    }
 
     // Logging
     RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Teleop Controller: ");
@@ -96,6 +119,7 @@ namespace cartesian_velocity_controller
                 initial_filter_cutoff_frequency_);
     RCLCPP_INFO(get_node()->get_logger(), "  max_linear_delta: %.4f", max_linear_delta_);
     RCLCPP_INFO(get_node()->get_logger(), "  max_angular_delta: %.4f", max_angular_delta_);
+    RCLCPP_INFO(get_node()->get_logger(), "  input_twist_frame: %s", input_twist_frame_.c_str());
 
     std::string robot_type = get_node()->get_parameter("robot_type").as_string();
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
@@ -105,6 +129,15 @@ namespace cartesian_velocity_controller
                    robot_type.c_str());
       return CallbackReturn::ERROR;
     }
+
+    // Pass controller's node interfaces to robot interface for topic subscriptions
+    // Robot interface will subscribe to /robot_description and /joint_states topics
+    robot_vel_interface_->setNodeInterfaces(get_node());
+
+    // Pass frame names for KDL chain extraction
+    std::string base_frame = get_node()->get_parameter("base_frame").as_string();
+    std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
+    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
 
     // Reset LPF state
     filtered_linear_.setZero();
@@ -178,10 +211,12 @@ namespace cartesian_velocity_controller
     Eigen::Vector3d cartesian_linear_velocity = filtered_linear_;
     Eigen::Vector3d cartesian_angular_velocity = filtered_angular_;
 
-    // Rotation from End-Effector frame to Base frame
-    const Eigen::Matrix3d R_BE = current_orientation_.toRotationMatrix();
-    // Convert joystick angular velocity (EE frame) to Base frame
-    cartesian_angular_velocity = R_BE * cartesian_angular_velocity;
+    if (input_twist_frame_ == "ee")
+    {
+      const Eigen::Matrix3d R_BE = current_orientation_.toRotationMatrix();
+      cartesian_angular_velocity = R_BE * cartesian_angular_velocity;
+    }
+    // else: base frame -> do nothing
 
     switch (mode_)
     {
@@ -207,6 +242,7 @@ namespace cartesian_velocity_controller
     robot_interfaces::CartesianVelocity vel_cmd;
     vel_cmd.linear = cartesian_linear_velocity;
     vel_cmd.angular = cartesian_angular_velocity;
+
     if (robot_vel_interface_->setCommand(vel_cmd))
     {
       return controller_interface::return_type::OK;

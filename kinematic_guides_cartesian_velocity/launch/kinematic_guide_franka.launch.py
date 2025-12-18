@@ -13,7 +13,7 @@ from launch.actions import (
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, WaitForTopics
 
 
 def generate_robot_description(context, robot_ip, arm_id, use_fake_hardware, fake_sensor_commands, load_gripper):
@@ -51,6 +51,7 @@ def launch_setup(context, *args, **kwargs):
     load_gripper = LaunchConfiguration('load_gripper')
     use_fake_hardware = LaunchConfiguration('use_fake_hardware')  # Set to false for real robot
     fake_sensor_commands = LaunchConfiguration('fake_sensor_commands')
+    launch_rviz = LaunchConfiguration('launch_rviz')
 
     # Generate the robot description from the xacro.
     robot_description = generate_robot_description(
@@ -69,6 +70,9 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
         parameters=[{'robot_description': robot_description}],
     ))
+
+    # Wait for /robot_description to be published before bringing up controllers/spawners
+    nodes.append(WaitForTopics(topics=[('/robot_description', 'std_msgs/msg/String')], timeout=15.0))
 
     # Standard Franka controller configuration.
     franka_controllers = PathJoinSubstitution(
@@ -169,6 +173,41 @@ def launch_setup(context, *args, **kwargs):
         output='screen'
     ))
 
+    # --- RViz and Goal Markers ---
+    rviz_config_file = PathJoinSubstitution([
+        FindPackageShare('kinematic_guides_cartesian_velocity'),
+        'rviz',
+        'goal_markers.rviz'
+    ])
+
+    nodes.append(Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config_file],
+        output='log',
+        condition=IfCondition(launch_rviz)
+    ))
+
+    # Goal markers publisher (Franka frames)
+    nodes.append(Node(
+        package='kinematic_guides_cartesian_velocity',
+        executable='goal_marker_publisher',
+        name='goal_marker_publisher',
+        output='screen',
+        parameters=[
+            custom_controller_config,
+            {"base_frame": "base"},
+            {"ee_frame": "fr3_hand_tcp"},
+            {"conf_topic": "/debug/goal_confidences"},
+            {"soft_goal_topic": "/debug/soft_goal"},
+            {"agnostic_goal_topic": "/debug/agnostic_goal"},
+            {"raw_velocity_topic": "/debug/raw_velocity"},
+            {"rate_hz": 10.0},
+        ],
+        condition=IfCondition(launch_rviz)
+    ))
+
     return nodes
 
 def generate_launch_description():
@@ -195,6 +234,11 @@ def generate_launch_description():
             'load_gripper',
             default_value='true',
             description='Use Franka Gripper as an end-effector, otherwise, the robot is loaded without an end-effector.'
+        ),
+        DeclareLaunchArgument(
+            'launch_rviz',
+            default_value='false',
+            description='Launch RViz and markers'
         ),
     ]
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

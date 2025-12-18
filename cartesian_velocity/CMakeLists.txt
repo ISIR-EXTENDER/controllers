@@ -8,7 +8,8 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_components REQUIRED)
+find_package(controller_interface REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(robot_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -24,17 +25,15 @@ add_library(${PROJECT_NAME} SHARED
 )
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
-  rclcpp_components
+  controller_interface
+  pluginlib
   geometry_msgs
   robot_interfaces
   Eigen3
   joystick_interface
 )
 
-# Register your controller class as a component
-rclcpp_components_register_nodes(${PROJECT_NAME}
-  "cartesian_velocity_controller::CartesianVelocityTeleopController"
-)
+# Pluginlib export for controller discovery
 
 # Install the library
 install(TARGETS
