@@ -10,6 +10,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(robot_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(joystick_interface REQUIRED)
@@ -26,9 +30,13 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_components
   geometry_msgs
+  std_msgs
   robot_interfaces
   Eigen3
   joystick_interface
+  visualization_msgs
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 # Register your controller class as a component
@@ -45,18 +53,30 @@ install(TARGETS
 )
 
 # Install the entire config directory (containing controllers.yaml + plugin XML)
-install(DIRECTORY config launch
+install(DIRECTORY config launch rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
 # Install the launch directory
-install(DIRECTORY
-  launch config
-  DESTINATION share/${PROJECT_NAME}
-)
+# (redundant install removed; directories installed above)
 
 # Export using pluginlib so the controller_interface can find the custom controller
 pluginlib_export_plugin_description_file(
         controller_interface config/kinematic_guides_cartesian.xml)
 
 ament_package()
+
+# Standalone RViz marker publisher node
+add_executable(goal_marker_publisher src/goal_marker_publisher.cpp)
+ament_target_dependencies(goal_marker_publisher
+  rclcpp
+  std_msgs
+  geometry_msgs
+  visualization_msgs
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+install(TARGETS goal_marker_publisher
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)

@@ -98,5 +98,8 @@ namespace cartesian_velocity_controller
         const Eigen::Vector3d &current_linear, const Eigen::Vector3d &previous_linear,
         double max_linear_delta, const Eigen::Vector3d &current_angular,
         const Eigen::Vector3d &previous_angular, double max_angular_delta) const;
+
+    // Frame for interpreting incoming twist commands: "base" or "ee"
+    std::string input_twist_frame_{"base"};
   };
 } // namespace cartesian_velocity_controller

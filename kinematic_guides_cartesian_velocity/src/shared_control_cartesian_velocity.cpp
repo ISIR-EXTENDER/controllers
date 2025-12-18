@@ -1,5 +1,8 @@
 #include "kinematic_guides_cartesian_velocity/shared_control_cartesian_velocity.hpp"
 #include "pluginlib/class_list_macros.hpp"
+#include <chrono>
+#include <functional>
+// Franka-specific header not needed here; using generic interfaces via factory
 
 namespace cartesian_velocity_controller
 {
@@ -344,6 +347,28 @@ namespace cartesian_velocity_controller
                 "  eps_t_reach: %.3f m, eps_r_reach: %.1f deg, dwell: %d ms", eps_t_reach_,
                 get_node()->get_parameter("eps_r_reach_deg").as_double(), dwell_ms_);
 
+    // Declare robot/hardware-related params if missing
+    if (!get_node()->has_parameter("robot_type"))
+      get_node()->declare_parameter("robot_type", "kinova_velocity");
+    if (!get_node()->has_parameter("base_frame"))
+      get_node()->declare_parameter("base_frame", "base_link");
+    if (!get_node()->has_parameter("tool_frame"))
+      get_node()->declare_parameter("tool_frame", "end_effector_link");
+
+    // Input twist frame parameter ("base" or "ee")
+    if (!get_node()->has_parameter("input_twist_frame"))
+      get_node()->declare_parameter("input_twist_frame", "base");
+
+    input_twist_frame_ = get_node()->get_parameter("input_twist_frame").as_string();
+    if (input_twist_frame_ != "base" && input_twist_frame_ != "ee")
+    {
+      RCLCPP_WARN(get_node()->get_logger(),
+                  "Invalid input_twist_frame='%s'. Allowed: 'base' or 'ee'. Forcing 'base'.",
+                  input_twist_frame_.c_str());
+      input_twist_frame_ = std::string("base");
+    }
+    RCLCPP_INFO(get_node()->get_logger(), "Input twist frame: %s", input_twist_frame_.c_str());
+
     std::string robot_type = get_node()->get_parameter("robot_type").as_string();
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
     if (!robot_vel_interface_)
@@ -352,6 +377,13 @@ namespace cartesian_velocity_controller
                    robot_type.c_str());
       return CallbackReturn::ERROR;
     }
+
+    // Provide node interfaces to the robot component so it can create subscriptions immediately
+    robot_vel_interface_->setNodeInterfaces(get_node());
+    // Configure FK frames consistent with URDF
+    const std::string base_frame = get_node()->get_parameter("base_frame").as_string();
+    const std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
+    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
 
     return CallbackReturn::SUCCESS;
   }
@@ -462,11 +494,15 @@ namespace cartesian_velocity_controller
     previous_initial_filtered_linear_velocity_ = initial_filtered_linear_velocity;
     previous_initial_filtered_angular_velocity_ = initial_filtered_angular_velocity;
 
-    // Rotation from End-Effector frame to Base frame
-    const Eigen::Matrix3d R_BE = current_orientation_.toRotationMatrix();
-    // Convert joystick angular velocity (EE frame) to Base frame
-    const Eigen::Vector3d initial_filtered_angular_velocity_base =
-        R_BE * initial_filtered_angular_velocity;
+    Eigen::Vector3d initial_filtered_angular_velocity_base = initial_filtered_angular_velocity;
+    if (input_twist_frame_ == "ee")
+    {
+      // Rotation from End-Effector frame to Base frame
+      const Eigen::Matrix3d R_BE = current_orientation_.toRotationMatrix();
+      // Convert joystick angular velocity (EE frame) to Base frame
+      initial_filtered_angular_velocity_base = R_BE * initial_filtered_angular_velocity;
+    }
+    // else: base frame -> do nothing
 
     /* -- Update Goals confidences only in MODE T (Translation_Rotation) -- */
     if (mode_ == TeleopMode::Translation_Rotation)

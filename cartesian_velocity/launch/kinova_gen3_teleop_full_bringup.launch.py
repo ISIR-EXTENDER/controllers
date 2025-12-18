@@ -121,13 +121,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    fault_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["fault_controller", "-c", "/controller_manager"],
-        output="screen",
-    )
-
     gripper_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -245,7 +238,6 @@ def generate_launch_description():
             robot_state_publisher_node,
             ros2_control_node,
             joint_state_broadcaster_spawner,
-            fault_controller_spawner,
             gripper_controller_spawner,
             cartesian_teleop_spawner,
             joystick_node,
