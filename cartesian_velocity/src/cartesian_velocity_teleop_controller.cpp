@@ -121,6 +121,7 @@ namespace cartesian_velocity_controller
     RCLCPP_INFO(get_node()->get_logger(), "  max_angular_delta: %.4f", max_angular_delta_);
     RCLCPP_INFO(get_node()->get_logger(), "  input_twist_frame: %s", input_twist_frame_.c_str());
 
+    // Create robot interface
     std::string robot_type = get_node()->get_parameter("robot_type").as_string();
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
     if (!robot_vel_interface_)
@@ -130,14 +131,20 @@ namespace cartesian_velocity_controller
       return CallbackReturn::ERROR;
     }
 
-    // Pass controller's node interfaces to robot interface for topic subscriptions
-    // Robot interface will subscribe to /robot_description and /joint_states topics
-    robot_vel_interface_->setNodeInterfaces(get_node());
-
-    // Pass frame names for KDL chain extraction
-    std::string base_frame = get_node()->get_parameter("base_frame").as_string();
-    std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
-    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
+    std::string robot_description;
+    if (!get_node()->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(get_node()->get_logger(), "Failed to find 'robot_description' parameter.");
+      return controller_interface::CallbackReturn::ERROR;
+    }
+    // init kinematics of the robot interface
+    if (!robot_vel_interface_->initKinematics(robot_description,
+                                             get_node()->get_parameter("base_frame").as_string(),
+                                             get_node()->get_parameter("tool_frame").as_string()))
+    {
+      RCLCPP_ERROR(get_node()->get_logger(), "Failed to initialize kinematics.");
+      return CallbackReturn::ERROR;
+    }
 
     // Reset LPF state
     filtered_linear_.setZero();
@@ -169,8 +176,10 @@ namespace cartesian_velocity_controller
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =
         robot_vel_interface_->getCurrentEndEffectorPose();
-    current_orientation_ = temp_pose.quaternion;
+    std::cout << "Current position " << temp_pose.translation.transpose() << std::endl;
 
+    current_orientation_ = temp_pose.quaternion;
+    
     // Convert the latest teleop Twist into raw Eigen vectors (no mode gating yet)
     Eigen::Vector3d raw_linear(latest_twist_.linear.x, latest_twist_.linear.y,
                                latest_twist_.linear.z);
