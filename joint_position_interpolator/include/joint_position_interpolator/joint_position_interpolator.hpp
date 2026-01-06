@@ -113,6 +113,8 @@ namespace joint_controllers
     std::vector<JointCommand> joint_trajectory;
     /// @brief check if trajectory is done or not. For now, as long as a goal is not reached no new goal can be sent
     bool done = true;
+
+    bool start = false;
     /// @brief current index in the trajectory
     size_t current_index = 0;
   };

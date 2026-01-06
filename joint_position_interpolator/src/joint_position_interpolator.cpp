@@ -82,16 +82,25 @@ namespace joint_controllers
   {
     if (current_index >= joint_trajectory.size())
     {
-      done = true;
+      if(!done)
+      {
+        RCLCPP_INFO(get_node()->get_logger(), "Trajectory done");
+        done = true;
+        start = false;
+      }
+
       return controller_interface::return_type::OK;
     }
     else
     {
-      const JointCommand jcommand = joint_trajectory[current_index];
-      current_index++;
+      if(start)
+      {
+        const JointCommand jcommand = joint_trajectory[current_index];
+        current_index++;
 
-      robot_interface_->setCommand(jcommand);
-      return controller_interface::return_type::OK;
+        robot_interface_->setCommand(jcommand);
+      }
+        return controller_interface::return_type::OK;
     }
   }
 
@@ -313,6 +322,8 @@ namespace joint_controllers
 
     RCLCPP_INFO(get_node()->get_logger(), "Trajectory computed: %zu points over %.2f seconds.",
                 num_steps, max_duration);
+    start = true;
+    done = false;
   }
 
 } // namespace joint_controllers
