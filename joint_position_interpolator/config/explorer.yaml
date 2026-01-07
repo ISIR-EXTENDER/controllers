@@ -1,5 +1,0 @@
-joint_position_interpolator:
-  ros__parameters:
-    robot_type: "explorer_joint_position"
-    max_velocity : 0.01
-    

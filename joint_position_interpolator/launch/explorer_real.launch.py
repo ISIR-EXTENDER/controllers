@@ -17,6 +17,7 @@ def generate_launch_description():
     can_port = LaunchConfiguration("can_port")
     host_id = LaunchConfiguration("host_id")
     use_poc2 = LaunchConfiguration("use_POC2")
+    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
 
     declared_arguments = [
         DeclareLaunchArgument(
@@ -53,7 +54,12 @@ def generate_launch_description():
             'spacenav', 
             default_value='True', 
             description='If the spacenav 3D mouse is used'
-        )
+        ), 
+        DeclareLaunchArgument(
+            "use_fake_hardware", 
+            default_value="false", 
+            description="Use fake hardware interface"
+        ),
     ]
 
     # --------------------------------------------------------------------------
@@ -68,7 +74,8 @@ def generate_launch_description():
         "use_actuator_interface:=", use_actuator_interface,
         " can_port:=", can_port,
         " host_id:=", host_id,
-        " use_POC2:=", use_poc2
+        " use_POC2:=", use_poc2,
+        " use_fake_hardware:=", use_fake_hardware
     ])
     robot_description = {"robot_description": robot_description_content}
 

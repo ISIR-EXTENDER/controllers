@@ -45,18 +45,37 @@ namespace joint_controllers
 
   CallbackReturn JointPositionInterpolator::on_configure(const rclcpp_lifecycle::State &)
   {
-    std::string robot_type = get_node()->get_parameter("robot_type").as_string();
-    robot_interface_ = robot_interfaces::create_robot_component(robot_type);
-    if (!robot_interface_)
+    auto node = get_node();
+
+    std::vector<std::string> joint_names;
+    if (!node->get_parameter("joint_names", joint_names))
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "Failed to create robot interface for type '%s'",
-                   robot_type.c_str());
+      RCLCPP_ERROR(node->get_logger(), "Parameter 'joint_names' not set!");
       return CallbackReturn::ERROR;
     }
-    max_interpolation_velocity_ = get_node()->get_parameter("max_velocity").as_double();
 
-    if (!parseLimits())
-      return CallbackReturn::FAILURE;
+    // 2. Instantiate directly using the new constructor
+    robot_interface_ = std::make_unique<robot_interfaces::GenericJointPosition>(joint_names);
+
+    // init kinematics of the robot interface
+    std::string robot_description;
+    if (!node->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to find 'robot_description' parameter.");
+      return controller_interface::CallbackReturn::ERROR;
+    }
+    if (!robot_interface_->initKinematics(robot_description,
+                                          node->get_parameter("base_frame").as_string(),
+                                          node->get_parameter("tool_frame").as_string()))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to initialize kinematics.");
+      return CallbackReturn::ERROR;
+    }
+
+    joint_names_ = robot_interface_->getJointNames();
+    joint_limits_ = robot_interface_->getJointLimits();
+
+    max_interpolation_velocity_ = node->get_parameter("max_velocity").as_double();
 
     return CallbackReturn::SUCCESS;
   }
@@ -80,129 +99,21 @@ namespace joint_controllers
   controller_interface::return_type JointPositionInterpolator::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
-    if (current_index >= joint_trajectory.size())
+    if (start && !done)
     {
-      if(!done)
+      if (current_index < joint_trajectory.size())
       {
-        RCLCPP_INFO(get_node()->get_logger(), "Trajectory done");
+        robot_interface_->setCommand(joint_trajectory[current_index]);
+        current_index++;
+      }
+      else
+      {
+        RCLCPP_INFO(get_node()->get_logger(), "Trajectory complete.");
         done = true;
         start = false;
       }
-
-      return controller_interface::return_type::OK;
     }
-    else
-    {
-      if(start)
-      {
-        const JointCommand jcommand = joint_trajectory[current_index];
-        current_index++;
-
-        robot_interface_->setCommand(jcommand);
-      }
-        return controller_interface::return_type::OK;
-    }
-  }
-
-  bool JointPositionInterpolator::parseLimits()
-  {
-    const std::vector<std::string> command_names = robot_interface_->get_commands_names();
-
-    std::string urdf_xml;
-    bool found_urdf = false;
-    std_msgs::msg::String msg;
-
-    auto temp_node = std::make_shared<rclcpp::Node>("temp_urdf_loader_node");
-
-    rclcpp::QoS qos_profile(1);
-    qos_profile.transient_local();
-    qos_profile.reliable();
-    auto timeout = std::chrono::seconds(2);
-
-    RCLCPP_INFO(temp_node->get_logger(), "Waiting for /robot_description topic...");
-
-    if (rclcpp::wait_for_message<std_msgs::msg::String>(msg, temp_node, "/robot_description",
-                                                        timeout, qos_profile))
-    {
-      urdf_xml = msg.data;
-      found_urdf = true;
-      RCLCPP_INFO(temp_node->get_logger(), "Received URDF from topic!");
-    }
-    else
-    {
-      RCLCPP_WARN(temp_node->get_logger(), "Timed out waiting for /robot_description topic.");
-      return false;
-    }
-
-    urdf::Model model;
-    if (found_urdf)
-    {
-      if (!model.initString(urdf_xml))
-      {
-        RCLCPP_ERROR(get_node()->get_logger(), "Failed to parse URDF XML");
-        return false; // invalidate if parse fails
-      }
-    }
-
-    // 3. Set Limits
-    joint_limits_.clear();
-    for (const std::string &cname : command_names)
-    {
-      JointLimits jlimit;
-      jlimit.has_position_limits = false;
-
-      if (found_urdf)
-      {
-        // Handle name stripping if necessary (e.g. "joint1/position" -> "joint1")
-        std::string simple_name = cname;
-        size_t slash_pos = cname.find('/');
-        if (slash_pos != std::string::npos)
-        {
-          simple_name = cname.substr(0, slash_pos);
-          joint_names_.push_back(simple_name);
-        }
-
-        auto joint = model.getJoint(simple_name);
-        if (joint)
-        {
-          switch (joint->type)
-          {
-          case urdf::Joint::REVOLUTE:
-            jlimit.jtype = JointType::REVOLUTE;
-            break;
-          case urdf::Joint::CONTINUOUS:
-            jlimit.jtype = JointType::CONTINUOUS;
-            break;
-          case urdf::Joint::PRISMATIC:
-            jlimit.jtype = JointType::PRISMATIC;
-            break;
-          case urdf::Joint::FIXED:
-            jlimit.jtype = JointType::FIXED;
-            break;
-          case urdf::Joint::FLOATING:
-            jlimit.jtype = JointType::FLOATING;
-            break;
-          case urdf::Joint::PLANAR:
-            jlimit.jtype = JointType::PLANAR;
-            break;
-          default:
-            jlimit.jtype = JointType::UNKNOWN;
-            break;
-          }
-
-          if (joint->limits)
-          {
-            jlimit.min_position = joint->limits->lower;
-            jlimit.max_position = joint->limits->upper;
-            jlimit.has_position_limits = true;
-            jlimit.max_velocity = joint->limits->velocity;
-            jlimit.has_velocity_limits = true;
-          }
-        }
-      }
-      joint_limits_.push_back(jlimit);
-    }
-    return true;
+    return controller_interface::return_type::OK;
   }
 
   void JointPositionInterpolator::desiredPositionCallback(
@@ -211,25 +122,14 @@ namespace joint_controllers
     if (!done)
       return;
 
-    size_t index = 0;
     target_positions_.clear();
-    for (const auto &jname : msg->joint_names)
+    for (size_t i = 0; i < msg->joint_names.size(); ++i)
     {
-
-      const auto it = std::find(joint_names_.begin(), joint_names_.end(), jname);
-      if (it == joint_names_.end())
-      {
-        index++;
-        continue;
-      }
-      else
-      {
-        target_positions_.insert(std::pair(jname, msg->desired_position[index]));
-        index++;
-      }
+      target_positions_[msg->joint_names[i]] = msg->desired_position[i];
     }
-    current_index = 0;
+
     computeTrajectory();
+    current_index = 0;
   }
 
   void JointPositionInterpolator::computeTrajectory()
@@ -277,7 +177,7 @@ namespace joint_controllers
       }
       double diff = target - start;
 
-      if (limits.jtype == JointType::CONTINUOUS)
+      if (limits.jtype == robot_interfaces::JointType::CONTINUOUS)
       {
         diff = fmod(diff + M_PI, 2.0 * M_PI);
         if (diff < 0)

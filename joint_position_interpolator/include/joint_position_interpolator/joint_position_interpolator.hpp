@@ -5,8 +5,7 @@
 #include "rclcpp/wait_for_message.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-#include "robot_interfaces/generic_component.hpp"
-#include "robot_interfaces/robot_interfaces_algos.hpp"
+#include "robot_interfaces/joint_position_component.hpp"
 
 #include "joint_position_interpolator/msg/joint_position_command.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -28,30 +27,6 @@ namespace joint_controllers
     double end_pos;
     /// @brief velocity for the interpolation
     double velocity;
-  };
-
-  /// @brief Enumeration of joint types that are available in urdf format
-  enum class JointType
-  {
-    UNKNOWN,
-    REVOLUTE,   // Rotates with limits (hinge)
-    CONTINUOUS, // Rotates without limits (wheel)
-    PRISMATIC,  // Slides (linear)
-    FIXED,      // No movement
-    FLOATING,   // 6DOF
-    PLANAR      // Moves in a 2D plane
-  };
-
-  /// @brief Struct to hold joint limits of the robot model
-  struct JointLimits
-  {
-    double min_position = -1e9;
-    double max_position = 1e9;
-    double max_velocity = 0.0;
-    bool has_position_limits = false;
-    bool has_velocity_limits = false;
-
-    JointType jtype = JointType::UNKNOWN;
   };
 
   /// @brief Class that implement a joint position interpolator. It allows to compute trajectory
@@ -83,35 +58,31 @@ namespace joint_controllers
 
   private:
     /// @brief Generic component to interface with robot hardware
-    std::unique_ptr<robot_interfaces::GenericComponent> robot_interface_;
+    std::unique_ptr<robot_interfaces::GenericJointPosition> robot_interface_;
 
     /// @brief Subscriber to get the desired position
-    rclcpp::Subscription<JointPositionMessage>::SharedPtr
-        desired_position_sub_;
-    /// @brief Callback of the subscriber. Will store the desired position in the unordered_map target_positions_
+    rclcpp::Subscription<JointPositionMessage>::SharedPtr desired_position_sub_;
+    /// @brief Callback of the subscriber. Will store the desired position in the unordered_map
+    /// target_positions_
     /// @param msg message send on the topic /desired_joint_positions
-    void desiredPositionCallback(
-        const JointPositionMessage::SharedPtr msg);
+    void desiredPositionCallback(const JointPositionMessage::SharedPtr msg);
 
     /// @brief Compute all joint trajectories based on current state and desired position
     void computeTrajectory();
-
-    /// @brief Read the topic /robot_description and parse the joint limits
-    /// @return false if the topic cannot be subsribed to, true otherwise/
-    bool parseLimits();
 
     /// @brief Interpolation velocity
     double max_interpolation_velocity_ = 0.01; // rad/s, default value
 
     /// @brief target positions matched with the joint names
     std::unordered_map<std::string, double> target_positions_;
-    /// @brief joint names of the robot 
+    /// @brief joint names of the robot
     std::vector<std::string> joint_names_;
     /// @brief Limits of each joints, ordered the same as joint_names
-    std::vector<JointLimits> joint_limits_;
+    std::vector<robot_interfaces::JointLimits> joint_limits_;
     /// @brief Trajectory from start position to desired position
     std::vector<JointCommand> joint_trajectory;
-    /// @brief check if trajectory is done or not. For now, as long as a goal is not reached no new goal can be sent
+    /// @brief check if trajectory is done or not. For now, as long as a goal is not reached no new
+    /// goal can be sent
     bool done = true;
 
     bool start = false;
