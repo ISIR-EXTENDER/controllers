@@ -65,7 +65,7 @@ def generate_launch_description():
         yaml_path_str = os.path.join(
             cartesian_velocity_share,
             "config",
-            "kinova_cartesian_teleop_controllers.yaml",
+            "kinova_params.yaml",
         )
         # Load YAML with empty prefix and save resolved YAML
         controllers_yaml_path = load_and_apply_prefix(yaml_path_str, "")
@@ -277,7 +277,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "controllers_file",
-                default_value="kinova_cartesian_teleop_controllers.yaml",
+                default_value="kinova_params.yaml",
                 description="Controllers YAML file.",
             ),
             DeclareLaunchArgument(

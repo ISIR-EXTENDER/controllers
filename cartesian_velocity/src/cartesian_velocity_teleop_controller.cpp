@@ -176,7 +176,6 @@ namespace cartesian_velocity_controller
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =
         robot_vel_interface_->getCurrentEndEffectorPose();
-    std::cout << "Current position " << temp_pose.translation.transpose() << std::endl;
 
     current_orientation_ = temp_pose.quaternion;
     
