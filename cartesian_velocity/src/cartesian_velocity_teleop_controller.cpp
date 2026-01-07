@@ -51,12 +51,25 @@ namespace cartesian_velocity_controller
   CartesianVelocityTeleopController::on_configure(const rclcpp_lifecycle::State &)
   {
     auto node = get_node();
-    gain_ = node->declare_parameter("gain", 1.0);
-    initial_filter_cutoff_frequency_ =
-        node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
-    max_linear_delta_ = node->declare_parameter("max_linear_delta", 0.007);
-    max_angular_delta_ = node->declare_parameter("max_angular_delta", 0.014);
-    input_twist_frame_ = node->declare_parameter("input_twist_frame", "base");
+    // Check and declare parameters only if not already declared
+    if (!node->has_parameter("gain"))
+    {
+      node->declare_parameter("gain", 1.0);
+    }
+    if (!node->has_parameter("initial_filter_cutoff_frequency"))
+    {
+      // Same name/semantics as in SharedControlVelocityController
+      node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
+    }
+    if (!node->has_parameter("max_linear_delta"))
+    {
+      node->declare_parameter("max_linear_delta", 0.007);
+    }
+    if (!node->has_parameter("max_angular_delta"))
+    {
+      node->declare_parameter("max_angular_delta", 0.014);
+    }
+
 
     // Read controller and filter parameters from server
     gain_ = node->get_parameter("gain").as_double();
