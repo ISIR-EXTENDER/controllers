@@ -19,10 +19,10 @@ namespace cartesian_velocity_controller
         previous_initial_filtered_angular_velocity_(Eigen::Vector3d::Zero()),
         previous_filtered_linear_velocity_(Eigen::Vector3d::Zero()),
         previous_filtered_angular_velocity_(Eigen::Vector3d::Zero()),
-        mode_(TeleopMode::Translation_Rotation), enable_shared_control_assistance_(false),
-        enable_velocity_saturation_(false), enable_debug_publish_(false),
-        initial_filter_cutoff_frequency_(0.0), final_filter_cutoff_frequency_(0.0),
-        lpf_initialized_(false), max_linear_delta_(0.0), max_angular_delta_(0.0)
+        enable_shared_control_assistance_(false), enable_velocity_saturation_(false),
+        enable_debug_publish_(false), initial_filter_cutoff_frequency_(0.0),
+        final_filter_cutoff_frequency_(0.0), lpf_initialized_(false), max_linear_delta_(0.0),
+        max_angular_delta_(0.0)
   {
   }
 
@@ -511,7 +511,7 @@ namespace cartesian_velocity_controller
     // else: base frame -> do nothing
 
     /* -- Update Goals confidences only in MODE T (Translation_Rotation) -- */
-    if (mode_ == TeleopMode::Translation_Rotation)
+    if (mode_ == joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION)
     {
       updateConfidences(dt_sec, initial_filtered_linear_velocity);
     }
@@ -532,7 +532,7 @@ namespace cartesian_velocity_controller
       // -- Shared control assistance -- //
       switch (mode_)
       {
-      case TeleopMode::Translation_Rotation: { // MODE T
+      case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION: { // MODE T
 
         auto [shaped_velocity, shaped_omega] = applySharedControlModeT(
             soft_goal, current_position_, current_orientation_, initial_filtered_linear_velocity);
@@ -541,7 +541,7 @@ namespace cartesian_velocity_controller
         cartesian_angular_velocity = shaped_omega;
         break;
       }
-      case TeleopMode::Rotation: { // MODE W
+      case joystick_interface::msg::TeleopCmd::ROTATION: { // MODE W
         auto [shaped_velocity, shaped_omega] =
             applySharedControlModeW(soft_goal, current_position_, current_orientation_,
                                     initial_filtered_angular_velocity_base);
