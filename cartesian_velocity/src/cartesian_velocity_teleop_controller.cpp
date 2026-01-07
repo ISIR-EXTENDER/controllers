@@ -10,7 +10,8 @@ namespace cartesian_velocity_controller
       : ControllerInterface(), latest_twist_(), filtered_linear_(Eigen::Vector3d::Zero()),
         filtered_angular_(Eigen::Vector3d::Zero()),
         current_orientation_(Eigen::Quaterniond::Identity())
-  { }
+  {
+  }
 
   CartesianVelocityTeleopController::~CartesianVelocityTeleopController() = default;
 
@@ -50,9 +51,9 @@ namespace cartesian_velocity_controller
   CartesianVelocityTeleopController::on_configure(const rclcpp_lifecycle::State &)
   {
     auto node = get_node();
-    // No need for 'if (!has_parameter)' checks
     gain_ = node->declare_parameter("gain", 1.0);
-    initial_filter_cutoff_frequency_ = node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
+    initial_filter_cutoff_frequency_ =
+        node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
     max_linear_delta_ = node->declare_parameter("max_linear_delta", 0.007);
     max_angular_delta_ = node->declare_parameter("max_angular_delta", 0.014);
     input_twist_frame_ = node->declare_parameter("input_twist_frame", "base");
@@ -102,8 +103,8 @@ namespace cartesian_velocity_controller
     }
     // init kinematics of the robot interface
     if (!robot_vel_interface_->initKinematics(robot_description,
-                                             node->get_parameter("base_frame").as_string(),
-                                             node->get_parameter("tool_frame").as_string()))
+                                              node->get_parameter("base_frame").as_string(),
+                                              node->get_parameter("tool_frame").as_string()))
     {
       RCLCPP_ERROR(node->get_logger(), "Failed to initialize kinematics.");
       return CallbackReturn::ERROR;
@@ -130,6 +131,10 @@ namespace cartesian_velocity_controller
       const rclcpp_lifecycle::State & /*previous_state*/)
   {
     robot_vel_interface_->release_all_interfaces();
+    // Reset LPF state
+    filtered_linear_.setZero();
+    filtered_angular_.setZero();
+    lpf_initialized_ = false;
     return CallbackReturn::SUCCESS;
   }
 
@@ -141,7 +146,7 @@ namespace cartesian_velocity_controller
         robot_vel_interface_->getCurrentEndEffectorPose();
 
     current_orientation_ = temp_pose.quaternion;
-    
+
     // Convert the latest teleop Twist into raw Eigen vectors (no mode gating yet)
     Eigen::Vector3d raw_linear(latest_twist_.linear.x, latest_twist_.linear.y,
                                latest_twist_.linear.z);
@@ -248,7 +253,7 @@ namespace cartesian_velocity_controller
       const double delta_linear =
           std::clamp(current_linear[i] - previous_linear[i], -max_linear_delta, max_linear_delta);
       const double delta_angular = std::clamp(current_angular[i] - previous_angular[i],
-                                               -max_angular_delta, max_angular_delta);
+                                              -max_angular_delta, max_angular_delta);
 
       saturated_linear[i] += delta_linear;
       saturated_angular[i] += delta_angular;
@@ -262,8 +267,6 @@ namespace cartesian_velocity_controller
   {
     // Update the stored Twist command with the latest message
     latest_twist_ = msg->twist;
-
-    // Map TeleopCmd.mode to internal TeleopMode
     mode_ = msg->mode;
   }
 
