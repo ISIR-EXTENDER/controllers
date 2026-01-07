@@ -35,11 +35,10 @@ namespace cartesian_velocity_controller
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    // Use command interface names provided by the Franka Cartesian Velocity Interface.
+    // Use command interface names provided by the robot interface
     robot_vel_interface_->set_commands_names();
 
     config.names = robot_vel_interface_->get_commands_names();
-    return config;
     return config;
   }
 
@@ -378,13 +377,20 @@ namespace cartesian_velocity_controller
       return CallbackReturn::ERROR;
     }
 
-    // Provide node interfaces to the robot component so it can create subscriptions immediately
-    robot_vel_interface_->setNodeInterfaces(get_node());
-    // Configure FK frames consistent with URDF
-    const std::string base_frame = get_node()->get_parameter("base_frame").as_string();
-    const std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
-    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
-
+    std::string robot_description;
+    if (!get_node()->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(get_node()->get_logger(), "Failed to find 'robot_description' parameter.");
+      return controller_interface::CallbackReturn::ERROR;
+    }
+    // init kinematics of the robot interface
+    if (!robot_vel_interface_->initKinematics(robot_description,
+                                             get_node()->get_parameter("base_frame").as_string(),
+                                             get_node()->get_parameter("tool_frame").as_string()))
+    {
+      RCLCPP_ERROR(get_node()->get_logger(), "Failed to initialize kinematics.");
+      return CallbackReturn::ERROR;
+    }
     return CallbackReturn::SUCCESS;
   }
 
