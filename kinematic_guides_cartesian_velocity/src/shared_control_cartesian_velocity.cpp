@@ -385,8 +385,8 @@ namespace cartesian_velocity_controller
     }
     // init kinematics of the robot interface
     if (!robot_vel_interface_->initKinematics(robot_description,
-                                             get_node()->get_parameter("base_frame").as_string(),
-                                             get_node()->get_parameter("tool_frame").as_string()))
+                                              get_node()->get_parameter("base_frame").as_string(),
+                                              get_node()->get_parameter("tool_frame").as_string()))
     {
       RCLCPP_ERROR(get_node()->get_logger(), "Failed to initialize kinematics.");
       return CallbackReturn::ERROR;
@@ -561,27 +561,28 @@ namespace cartesian_velocity_controller
       // --- Baseline: agnostic control mode ---
       switch (mode_)
       {
-      case TeleopMode::Translation_Rotation: {
+      case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION: {
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         // Compute baseline angular velocity to keep wrist aligned
         cartesian_angular_velocity =
             computeBaselineAngularVelocity(current_position_, cartesian_linear_velocity);
         break;
       }
-      case TeleopMode::Rotation: {
+      case joystick_interface::msg::TeleopCmd::ROTATION: {
         cartesian_linear_velocity.setZero();
         // User commands rotation in the end-effector frame, command is sent to robot in base frame
         cartesian_angular_velocity = initial_filtered_angular_velocity_base;
         break;
       }
-      case TeleopMode::Translation: {
+      case joystick_interface::msg::TeleopCmd::TRANSLATION: {
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         cartesian_angular_velocity.setZero();
         break;
       }
       // TODO: legacy, to remove
-      case TeleopMode::Both: { // not like Mode W, just to use spacenav as full 6D joystick
+      case joystick_interface::msg::TeleopCmd::BOTH: { // not like Mode W, just to use spacenav as
+                                                       // full 6D joystick
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         cartesian_angular_velocity = initial_filtered_angular_velocity;
@@ -684,12 +685,7 @@ namespace cartesian_velocity_controller
       const joystick_interface::msg::TeleopCmd::SharedPtr msg)
   {
     latest_twist_ = msg->twist;
-    const TeleopMode new_mode = static_cast<TeleopMode>(msg->mode);
-
-    if (new_mode != mode_)
-    {
-      mode_ = new_mode;
-    }
+    mode_ = msg->mode;
 
     // Always publish current mode (either new or unchanged)
     if (mode_pub_)

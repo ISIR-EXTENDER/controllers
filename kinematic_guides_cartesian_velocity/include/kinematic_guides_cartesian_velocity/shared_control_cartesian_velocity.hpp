@@ -69,15 +69,7 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
-    // Teleoperation Mode
-    enum class TeleopMode
-    {
-      Translation_Rotation,
-      Rotation,
-      Translation,
-      Both
-    };
-    TeleopMode mode_{TeleopMode::Translation_Rotation}; // default to Translation_Rotation
+    uint8_t mode_{joystick_interface::msg::TeleopCmd::Translation_Rotation}; // default to Translation_Rotation
 
     // Callback to receive Twist + Mode commands from the teleop node using a
     // custom msg.
