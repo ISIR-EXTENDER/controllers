@@ -24,7 +24,7 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/int32.hpp"
 
-#include "joystick_interface/msg/teleop_cmd.hpp"
+#include "extender_msgs/msg/teleop_command.hpp"
 #include "robot_interfaces/generic_component.hpp"
 #include "robot_interfaces/robot_interfaces_algos.hpp"
 
@@ -69,12 +69,11 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
-    uint8_t mode_{joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION}; // default to Translation_Rotation
+    uint8_t mode_{extender_msgs::msg::TeleopCommand::TRANSLATION_ROTATION}; // default to Translation_Rotation
 
     // Callback to receive Twist + Mode commands from the teleop node using a
     // custom msg.
-    void teleopCmdCallback(const joystick_interface::msg::TeleopCmd::SharedPtr msg);
-
+    void teleopCmdCallback(const extender_msgs::msg::TeleopCommand::SharedPtr msg);
     RotationError computeRotationError(const Eigen::Quaterniond &q_goal,
                                        const Eigen::Quaterniond &q_current) const;
 
@@ -152,7 +151,7 @@ namespace cartesian_velocity_controller
     Eigen::Vector3d previous_filtered_angular_velocity_;
 
     // Subscription for teleop Twist + Mode commands.
-    rclcpp::Subscription<joystick_interface::msg::TeleopCmd>::SharedPtr teleop_cmd_sub_;
+    rclcpp::Subscription<extender_msgs::msg::TeleopCommand>::SharedPtr teleop_cmd_sub_;
 
     // Robot state
     Eigen::Quaterniond current_orientation_;

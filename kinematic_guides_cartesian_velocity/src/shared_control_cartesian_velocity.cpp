@@ -2,7 +2,6 @@
 #include "pluginlib/class_list_macros.hpp"
 #include <chrono>
 #include <functional>
-// Franka-specific header not needed here; using generic interfaces via factory
 
 namespace cartesian_velocity_controller
 {
@@ -56,7 +55,7 @@ namespace cartesian_velocity_controller
   CallbackReturn SharedControlVelocityController::on_init()
   {
     // Subscribe to custom TeleopCmd messages
-    teleop_cmd_sub_ = get_node()->create_subscription<joystick_interface::msg::TeleopCmd>(
+    teleop_cmd_sub_ = get_node()->create_subscription<extender_msgs::msg::TeleopCommand>(
         "/teleop_cmd", 10,
         std::bind(&SharedControlVelocityController::teleopCmdCallback, this,
                   std::placeholders::_1));
@@ -444,6 +443,7 @@ namespace cartesian_velocity_controller
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
 
+    typedef extender_msgs::msg::TeleopCommand Mode;
     /* -- Update state variables --*/
     // Get time
     const rclcpp::Time now = get_node()->now();
@@ -511,7 +511,7 @@ namespace cartesian_velocity_controller
     // else: base frame -> do nothing
 
     /* -- Update Goals confidences only in MODE T (Translation_Rotation) -- */
-    if (mode_ == joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION)
+    if (mode_ == Mode::TRANSLATION_ROTATION)
     {
       updateConfidences(dt_sec, initial_filtered_linear_velocity);
     }
@@ -532,7 +532,7 @@ namespace cartesian_velocity_controller
       // -- Shared control assistance -- //
       switch (mode_)
       {
-      case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION: { // MODE T
+      case Mode::TRANSLATION_ROTATION: { // MODE T
 
         auto [shaped_velocity, shaped_omega] = applySharedControlModeT(
             soft_goal, current_position_, current_orientation_, initial_filtered_linear_velocity);
@@ -541,7 +541,7 @@ namespace cartesian_velocity_controller
         cartesian_angular_velocity = shaped_omega;
         break;
       }
-      case joystick_interface::msg::TeleopCmd::ROTATION: { // MODE W
+      case Mode::ROTATION: { // MODE W
         auto [shaped_velocity, shaped_omega] =
             applySharedControlModeW(soft_goal, current_position_, current_orientation_,
                                     initial_filtered_angular_velocity_base);
@@ -561,27 +561,27 @@ namespace cartesian_velocity_controller
       // --- Baseline: agnostic control mode ---
       switch (mode_)
       {
-      case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION: {
+      case Mode::TRANSLATION_ROTATION: {
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         // Compute baseline angular velocity to keep wrist aligned
         cartesian_angular_velocity =
             computeBaselineAngularVelocity(current_position_, cartesian_linear_velocity);
         break;
       }
-      case joystick_interface::msg::TeleopCmd::ROTATION: {
+      case Mode::ROTATION: {
         cartesian_linear_velocity.setZero();
         // User commands rotation in the end-effector frame, command is sent to robot in base frame
         cartesian_angular_velocity = initial_filtered_angular_velocity_base;
         break;
       }
-      case joystick_interface::msg::TeleopCmd::TRANSLATION: {
+      case Mode::TRANSLATION: {
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         cartesian_angular_velocity.setZero();
         break;
       }
       // TODO: legacy, to remove
-      case joystick_interface::msg::TeleopCmd::BOTH: { // not like Mode W, just to use spacenav as
+      case Mode::BOTH: { // not like Mode W, just to use spacenav as
                                                        // full 6D joystick
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
@@ -682,7 +682,7 @@ namespace cartesian_velocity_controller
   // the /debug/mode topic for visualization and logging.
   // -----------------------------------------------------------------------------
   void SharedControlVelocityController::teleopCmdCallback(
-      const joystick_interface::msg::TeleopCmd::SharedPtr msg)
+      const extender_msgs::msg::TeleopCommand::SharedPtr msg)
   {
     latest_twist_ = msg->twist;
     mode_ = msg->mode;
