@@ -40,7 +40,7 @@ namespace cartesian_velocity_controller
   CallbackReturn CartesianVelocityTeleopController::on_init()
   {
     // Create a subscription to the "cmd_vel" topic to receive teleoperation commands
-    twist_sub_ = get_node()->create_subscription<joystick_interface::msg::TeleopCmd>(
+    twist_sub_ = get_node()->create_subscription<extender_msgs::msg::TeleopCommand>(
         "/teleop_cmd", 10,
         std::bind(&CartesianVelocityTeleopController::twistCallback, this, std::placeholders::_1));
 
@@ -154,6 +154,7 @@ namespace cartesian_velocity_controller
   controller_interface::return_type CartesianVelocityTeleopController::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
+    typedef extender_msgs::msg::TeleopCommand Mode;
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =
         robot_vel_interface_->getCurrentEndEffectorPose();
@@ -209,17 +210,17 @@ namespace cartesian_velocity_controller
 
     switch (mode_)
     {
-    case joystick_interface::msg::TeleopCmd::TRANSLATION:
+    case Mode::TRANSLATION:
       // Only translation: ignore angular component
       cartesian_angular_velocity.setZero();
       break;
-    case joystick_interface::msg::TeleopCmd::ROTATION:
+    case Mode::ROTATION:
       // Only rotation: ignore linear component
       cartesian_linear_velocity.setZero();
       break;
-    case joystick_interface::msg::TeleopCmd::BOTH:
+    case Mode::BOTH:
       break;
-    case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION:
+    case Mode::TRANSLATION_ROTATION:
       break;
     default:
       // Use both linear and angular components
@@ -276,7 +277,7 @@ namespace cartesian_velocity_controller
   }
 
   void CartesianVelocityTeleopController::twistCallback(
-      const joystick_interface::msg::TeleopCmd::SharedPtr msg)
+      const extender_msgs::msg::TeleopCommand::SharedPtr msg)
   {
     // Update the stored Twist command with the latest message
     latest_twist_ = msg->twist;
