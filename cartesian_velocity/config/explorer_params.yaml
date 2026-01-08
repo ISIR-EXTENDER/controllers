@@ -7,4 +7,4 @@ cartesian_velocity_teleop_controller:
     robot_type: "explorer_velocity"
     input_twist_frame: "ee"   # "base" or "ee"
     base_frame: "base_link"
-    tool_frame: "structure"
+    tool_frame: "tool0"

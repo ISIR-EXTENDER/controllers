@@ -141,7 +141,7 @@ def generate_launch_description():
 
     # --- Teleoperation Node ---
     teleop_config_file = PathJoinSubstitution([
-        FindPackageShare("joystick_interface"), "config", "franka_joystick_parameters.yaml"
+        FindPackageShare("joystick_interface"), "config", "explorer_joystick_parameters.yaml"
     ])
 
     teleop_node =Node(
