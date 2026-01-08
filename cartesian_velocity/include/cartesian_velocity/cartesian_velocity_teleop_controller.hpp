@@ -43,13 +43,25 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
-    uint8_t mode_{extender_msgs::msg::TeleopCommand::TRANSLATION_ROTATION};
-
     /// Callback to receive Twist commands from the teleop node
     void twistCallback(const extender_msgs::msg::TeleopCommand::SharedPtr msg);
 
+    Eigen::Vector3d computeBaselineAngularVelocity(
+        const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const;
+    // Helper: apply first-order low-pass filter to a 3D vector
+    Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
+                                             const Eigen::Vector3d &previous, double alpha) const;
+
+    // Helper: apply simple per-axis rate limiting (saturation) to linear and angular velocities
+    std::pair<Eigen::Vector3d, Eigen::Vector3d> applyVelocitySaturation(
+        const Eigen::Vector3d &current_linear, const Eigen::Vector3d &previous_linear,
+        double max_linear_delta, const Eigen::Vector3d &current_angular,
+        const Eigen::Vector3d &previous_angular, double max_angular_delta) const;
+
     /// Generic component to interface with robot hardware
     std::unique_ptr<robot_interfaces::GenericComponent> robot_vel_interface_;
+
+    uint8_t mode_{extender_msgs::msg::TeleopCommand::TRANSLATION_ROTATION};
 
     /// Stores the latest Twist command received (raw from teleop)
     geometry_msgs::msg::Twist latest_twist_;
@@ -76,16 +88,6 @@ namespace cartesian_velocity_controller
     /// Cartesian velocity saturation parameters
     double max_linear_delta_;
     double max_angular_delta_;
-
-    // Helper: apply first-order low-pass filter to a 3D vector
-    Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
-                                             const Eigen::Vector3d &previous, double alpha) const;
-
-    // Helper: apply simple per-axis rate limiting (saturation) to linear and angular velocities
-    std::pair<Eigen::Vector3d, Eigen::Vector3d> applyVelocitySaturation(
-        const Eigen::Vector3d &current_linear, const Eigen::Vector3d &previous_linear,
-        double max_linear_delta, const Eigen::Vector3d &current_angular,
-        const Eigen::Vector3d &previous_angular, double max_angular_delta) const;
 
     // Frame for interpreting incoming twist commands: "base" or "ee"
     std::string input_twist_frame_{"base"};

@@ -70,7 +70,6 @@ namespace cartesian_velocity_controller
       node->declare_parameter("max_angular_delta", 0.014);
     }
 
-
     // Read controller and filter parameters from server
     gain_ = node->get_parameter("gain").as_double();
     initial_filter_cutoff_frequency_ =
@@ -218,9 +217,9 @@ namespace cartesian_velocity_controller
       // Only rotation: ignore linear component
       cartesian_linear_velocity.setZero();
       break;
-    case Mode::BOTH:
-      break;
     case Mode::TRANSLATION_ROTATION:
+      cartesian_angular_velocity =
+          computeBaselineAngularVelocity(temp_pose.translation, cartesian_linear_velocity);
       break;
     default:
       // Use both linear and angular components
@@ -274,6 +273,24 @@ namespace cartesian_velocity_controller
     }
 
     return {saturated_linear, saturated_angular};
+  }
+
+  Eigen::Vector3d CartesianVelocityTeleopController::computeBaselineAngularVelocity(
+      const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const
+  {
+    const double x_E = current_position.x();
+    const double y_E = current_position.y();
+    const double v_x = linear_velocity.x();
+    const double v_y = linear_velocity.y();
+    const double denom = x_E * x_E + y_E * y_E;
+
+    double omega_z_baseline = 0.0;
+    if (denom > 0.0)
+    {
+      omega_z_baseline = (x_E * v_y - y_E * v_x) / denom;
+    }
+
+    return Eigen::Vector3d(0.0, 0.0, omega_z_baseline); // ω_{E,u,T}
   }
 
   void CartesianVelocityTeleopController::twistCallback(
