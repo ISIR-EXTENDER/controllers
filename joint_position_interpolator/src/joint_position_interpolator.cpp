@@ -35,7 +35,7 @@ namespace joint_controllers
   CallbackReturn JointPositionInterpolator::on_init()
   {
     desired_position_sub_ =
-        get_node()->create_subscription<joint_position_interpolator::msg::JointPositionCommand>(
+        get_node()->create_subscription<extender_msgs::msg::JointPositionCommand>(
             "/joint_position_desired", 10,
             std::bind(&JointPositionInterpolator::desiredPositionCallback, this,
                       std::placeholders::_1));
@@ -117,7 +117,7 @@ namespace joint_controllers
   }
 
   void JointPositionInterpolator::desiredPositionCallback(
-      const joint_position_interpolator::msg::JointPositionCommand::SharedPtr msg)
+      const extender_msgs::msg::JointPositionCommand::SharedPtr msg)
   {
     if (!done)
       return;

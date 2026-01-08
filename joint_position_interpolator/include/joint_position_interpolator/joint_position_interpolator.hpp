@@ -7,7 +7,7 @@
 
 #include "robot_interfaces/joint_position_component.hpp"
 
-#include "joint_position_interpolator/msg/joint_position_command.hpp"
+#include "extender_msgs/msg/joint_position_command.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
 
@@ -37,7 +37,7 @@ namespace joint_controllers
     using CallbackReturn =
         rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
     typedef robot_interfaces::JointCommand JointCommand;
-    typedef joint_position_interpolator::msg::JointPositionCommand JointPositionMessage;
+    typedef extender_msgs::msg::JointPositionCommand JointPositionMessage;
 
     JointPositionInterpolator();
     virtual ~JointPositionInterpolator();
