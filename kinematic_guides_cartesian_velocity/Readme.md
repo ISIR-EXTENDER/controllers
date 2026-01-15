@@ -7,6 +7,7 @@ A ROS2 controller package that implements shared control teleoperation for robot
 The Kinematic Guides Cartesian Velocity Controller enables advanced teleoperation of robot arms by implementing a shared control paradigm. The system provides:
 
 - **Shared Control Assistance**: Blends user commands with autonomous goal-directed behavior
+- **Dynamic Goal Management**: Support for both static (parameter-based) and dynamic (runtime) goals
 - **Multi-Goal Tracking**: Dynamically selects and tracks multiple predefined goals based on confidence measures
 - **Kinematic Guidance**: Provides haptic-like assistance through velocity shaping
 - **Visual Feedback**: RViz visualization of goals, confidence levels, and control assistance
@@ -17,6 +18,8 @@ The Kinematic Guides Cartesian Velocity Controller enables advanced teleoperatio
 
 Goals are represented as 6D poses (position + orientation) with associated confidence values. The system supports:
 
+- **Static Goals**: Predefined goals loaded from ROS2 parameters at startup
+- **Dynamic Goals**: Goals that can be published at runtime via ROS2 topics
 - Multiple simultaneous goals
 - Dynamic confidence updates based on user behavior
 - Soft goal selection through confidence-weighted blending
@@ -62,6 +65,56 @@ The controller is highly configurable through ROS2 parameters. Configuration fil
 - `known_goals_poses`: Known goals with labels for feedback
 - `known_goals_labels`: String labels for known goals
 
+### Dynamic Goals
+
+In addition to static goals configured via parameters, the controller supports dynamic goal publishing at runtime. Goals can be added, updated, or removed during operation through ROS2 topics.
+
+#### Publishing Dynamic Goals
+
+Goals can be published to the `/shared_control/dynamic_goals` topic using the `extender_msgs/SharedControlGoalArray` message type:
+
+```bash
+ros2 topic pub /shared_control_goals extender_msgs/msg/SharedControlGoalArray "
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: 'base_link'
+goals:
+- id: 'goal_1'
+  pose:
+    position:
+      x: 0.5
+      y: 0.0
+      z: 0.3
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      w: 1.0
+- id: 'goal_2'
+  pose:
+    position:
+      x: 0.3
+      y: 0.2
+      z: 0.4
+    orientation:
+      x: 0.0
+      y: 0.0
+      z: 0.707
+      w: 0.707"
+```
+
+#### Dynamic Goal Fields
+- `id`: Unique string identifier for the goal
+- `pose`: 6D pose (position + orientation quaternion) in the robot's base frame
+
+#### Dynamic Goal Management
+- **Adding Goals**: Publish new goals with unique IDs
+- **Updating Goals**: Republish goals with existing IDs to update pose/confidence
+- **Removing Goals**: Set confidence to 0.0 or stop publishing the goal
+- **Real-time Updates**: Goals can be modified during teleoperation without restarting the controller
+
 #### Velocity Saturation
 - `max_linear_delta`: Maximum linear velocity change per cycle (default: 0.0005)
 - `max_angular_delta`: Maximum angular velocity change per cycle (default: 0.0005)
@@ -103,6 +156,8 @@ The controller subscribes to `/teleop_cmd` topic of type `joystick_interface/msg
 - `twist`: Desired Cartesian velocity (linear and angular components)
 - `mode`: Teleoperation mode (TRANSLATION_ROTATION, ROTATION, TRANSLATION, BOTH)
 
+The controller also subscribes to `/shared_control/dynamic_goals` for dynamic goal updates during operation.
+
 ## Visualization
 
 ### RViz Integration
@@ -127,12 +182,13 @@ ros2 run kinematic_guides_cartesian_velocity goal_marker_publisher
 
 When `enable_debug_publish` is true, the controller publishes debug information:
 
-- `/debug/goal_confidences`: Confidence values for each goal
-- `/debug/soft_goal`: Current soft goal pose
-- `/debug/agnostic_goal`: Goal without assistance
+- `/debug/goal_confidences`: Confidence values for each goal (static and dynamic)
+- `/debug/soft_goal`: Current soft goal pose (blended from active goals)
+- `/debug/agnostic_goal`: Goal without assistance (user input only)
 - `/debug/raw_velocity`: Raw user input velocity
 - `/debug/assisted_angular_velocity`: Angular velocity after assistance
 - `/debug/final_filtered_linear_velocity`: Final filtered linear velocity
 - `/debug/final_filtered_angular_velocity`: Final filtered angular velocity
-- `/debug/goal_reached`: Index of reached goal
+- `/debug/goal_reached`: ID of reached goal
 - `/debug/mode`: Current teleoperation mode
+- `/goal_markers`: RViz markers for visualizing all active goals
