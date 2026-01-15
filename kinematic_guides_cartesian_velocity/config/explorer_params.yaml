@@ -2,7 +2,7 @@ kinematic_guides_cartesian_velocity:
   ros__parameters:
     # Activate / desactivate functions
     enable_shared_control_assistance: true
-    enable_velocity_saturation: false
+    enable_velocity_saturation: true
     enable_debug_publish: true
 
     # Low-pass filter
@@ -12,17 +12,17 @@ kinematic_guides_cartesian_velocity:
 
     # Multi-target estimation: all goals are 6D
     # Default gripper orientation quaternion: [1.000, 0.003, 0.004, -0.001]
-    goals_poses: [0.3610, -0.2203, 0.3192, 0.6787, 0.7338, 0.0154, 0.0269] # experiment with two goals and changing target on run
+    goals_poses: [0., -0., 0., 0., 0., 0.7071, 0.7071] # experiment with two goals and changing target on run
     #goals_poses: [0.539, -0.066, 0.364, 0.901, 0.021, 0.433, 0.009] # experiment with 6D goal close
     # NOTE: quaternion order is (qx, qy, qz, qw) and should be unit-norm.
 
-    known_goals_poses: [0.3610, -0.2203, 0.3192, 0.6787, 0.7338, 0.0154, 0.0269] # experiment with two goals and changing target on run
+    known_goals_poses: [0., 0., 0., 0., 0., 0.7071, 0.7071] # experiment with two goals and changing target on run
     #known_goals_poses: [0.539, -0.066, 0.364, 0.901, 0.021, 0.433, 0.009] # experiment with 6D goal close
     known_goals_labels:    ["Bin A"]
 
     # Cartesian velocity saturation
-    max_linear_delta: 0.1 #0.0005
-    max_angular_delta: 0.1 #0.0005
+    max_linear_delta: 0.0005 #0.0005
+    max_angular_delta: 0.0005 #0.0005
 
     # Goals confidence 
     alpha_conf:    1.5        # [s^-1] #after fix in eq of c_dot using the normalization
@@ -41,8 +41,8 @@ kinematic_guides_cartesian_velocity:
     # Forward Kinematics Configuration (URDF-driven)
     # Frame names must match the robot URDF model
     base_frame: "base_link"
-    tool_frame: "structure"
-    input_twist_frame: "ee"  # "base" or "ee"
+    tool_frame: "tool0"
+    input_twist_frame: "base"  # "base" or "ee"
     # Use RT joint buffer for FK readings (default false; rely on joint_states)
     use_rt_joint_buffer: false
 
@@ -50,7 +50,7 @@ goal_marker_publisher:
   ros__parameters:
     # ----------------- Frames -----------------
     base_frame: "base_link"
-    ee_frame:   "structure"    # apex for cones + agnostic sphere
+    ee_frame:   "tool0"    # apex for cones + agnostic sphere
 
     # ----------------- Geometry / viz -----------------
     r1:            0.04       # [m]
@@ -65,5 +65,5 @@ goal_marker_publisher:
     soft_goal_topic:    "/debug/soft_goal"
     raw_velocity_topic: "/debug/raw_velocity"
 
-    goal_positions: [0.3610, -0.2203, 0.3192] # experiment with two goals and changing target on run
+    goal_positions: [0.,0., 0.] # experiment with two goals and changing target on run
     
