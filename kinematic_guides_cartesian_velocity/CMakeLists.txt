@@ -75,6 +75,7 @@ ament_target_dependencies(goal_marker_publisher
   visualization_msgs
   tf2_ros
   tf2_geometry_msgs
+  extender_msgs
 )
 
 install(TARGETS goal_marker_publisher
