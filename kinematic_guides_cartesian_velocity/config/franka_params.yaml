@@ -40,7 +40,6 @@ kinematic_guides_cartesian_velocity:
     eps_r_reach_deg:  10.0
     reach_dwell_ms:   300
     robot_type: "franka_velocity"
-    robot_description: ""
     # Forward Kinematics Configuration (URDF-driven)
     # Frame names must match the robot URDF model
     base_frame: "base"

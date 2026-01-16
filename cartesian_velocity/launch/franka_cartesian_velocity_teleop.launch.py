@@ -143,7 +143,7 @@ def launch_setup(context, *args, **kwargs):
     custom_controller_config = PathJoinSubstitution([
         FindPackageShare('cartesian_velocity'),
         'config',
-        'controllers.yaml'
+        'franka_params.yaml'
     ])
 
     nodes.append(Node(

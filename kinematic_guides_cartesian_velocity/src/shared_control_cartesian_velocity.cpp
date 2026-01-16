@@ -2,7 +2,6 @@
 #include "pluginlib/class_list_macros.hpp"
 #include <chrono>
 #include <functional>
-// Franka-specific header not needed here; using generic interfaces via factory
 
 namespace cartesian_velocity_controller
 {
@@ -19,10 +18,10 @@ namespace cartesian_velocity_controller
         previous_initial_filtered_angular_velocity_(Eigen::Vector3d::Zero()),
         previous_filtered_linear_velocity_(Eigen::Vector3d::Zero()),
         previous_filtered_angular_velocity_(Eigen::Vector3d::Zero()),
-        mode_(TeleopMode::Translation_Rotation), enable_shared_control_assistance_(false),
-        enable_velocity_saturation_(false), enable_debug_publish_(false),
-        initial_filter_cutoff_frequency_(0.0), final_filter_cutoff_frequency_(0.0),
-        lpf_initialized_(false), max_linear_delta_(0.0), max_angular_delta_(0.0)
+        enable_shared_control_assistance_(false), enable_velocity_saturation_(false),
+        enable_debug_publish_(false), initial_filter_cutoff_frequency_(0.0),
+        final_filter_cutoff_frequency_(0.0), lpf_initialized_(false), max_linear_delta_(0.0),
+        max_angular_delta_(0.0)
   {
   }
 
@@ -35,11 +34,10 @@ namespace cartesian_velocity_controller
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    // Use command interface names provided by the Franka Cartesian Velocity Interface.
+    // Use command interface names provided by the robot interface
     robot_vel_interface_->set_commands_names();
 
     config.names = robot_vel_interface_->get_commands_names();
-    return config;
     return config;
   }
 
@@ -57,345 +55,161 @@ namespace cartesian_velocity_controller
   CallbackReturn SharedControlVelocityController::on_init()
   {
     // Subscribe to custom TeleopCmd messages
-    teleop_cmd_sub_ = get_node()->create_subscription<joystick_interface::msg::TeleopCmd>(
+    teleop_cmd_sub_ = get_node()->create_subscription<extender_msgs::msg::TeleopCommand>(
         "/teleop_cmd", 10,
         std::bind(&SharedControlVelocityController::teleopCmdCallback, this,
                   std::placeholders::_1));
+
+    goal_sub_ = get_node()->create_subscription<extender_msgs::msg::SharedControlGoalArray>(
+        "/shared_control/dynamic_goals", 10,
+        std::bind(&SharedControlVelocityController::goalCallback, this, std::placeholders::_1));
+
     return CallbackReturn::SUCCESS;
+  }
+
+  void SharedControlVelocityController::load_parameters()
+  {
+    // Flags
+    declare_and_get_parameters("enable_shared_control_assistance",
+                               enable_shared_control_assistance_, true);
+    declare_and_get_parameters("enable_velocity_saturation", enable_velocity_saturation_, true);
+    declare_and_get_parameters("enable_debug_publish", enable_debug_publish_, false);
+
+    // Filters & Saturation
+    declare_and_get_parameters("initial_filter_cutoff_frequency", initial_filter_cutoff_frequency_,
+                               0.8);
+    declare_and_get_parameters("final_filter_cutoff_frequency", final_filter_cutoff_frequency_,
+                               5.0);
+    declare_and_get_parameters("max_linear_delta", max_linear_delta_, 0.007);
+    declare_and_get_parameters("max_angular_delta", max_angular_delta_, 0.014);
+
+    // Shared Control math
+    declare_and_get_parameters("gamma", gamma_, 3.0);
+    declare_and_get_parameters("alpha_conf", alpha_conf_, 5.0);
+    declare_and_get_parameters("r1", r1_, 0.08);
+    declare_and_get_parameters("r2", r2_, 0.040);
+    declare_and_get_parameters("v_j_max", v_j_max_, 0.04);
+
+    // Degrees to Radians conversions
+    double theta_l_deg, t1_deg, t2_deg, eps_r_deg;
+    declare_and_get_parameters("theta_l_deg", theta_l_deg, 10.0);
+    declare_and_get_parameters("theta1_deg", t1_deg, 8.0);
+    declare_and_get_parameters("theta2_deg", t2_deg, 4.0);
+    declare_and_get_parameters("eps_r_reach_deg", eps_r_deg, 5.0);
+
+    theta_l_ = theta_l_deg * M_PI / 180.0;
+    theta1_ = t1_deg * M_PI / 180.0;
+    theta2_ = t2_deg * M_PI / 180.0;
+    eps_r_reach_rad_ = eps_r_deg * M_PI / 180.0;
+
+    declare_and_get_parameters("eps_t_reach_m", eps_t_reach_, 0.01);
+    declare_and_get_parameters("reach_dwell_ms", dwell_ms_, 300);
+  }
+
+  bool SharedControlVelocityController::configure_goals()
+  {
+    auto node = get_node();
+    std::vector<double> raw_poses;
+    std::vector<std::string> goals_label;
+    declare_and_get_parameters("goals_poses", raw_poses, {0.605, 0.220, 0.278, 0.0, 0.0, 0.0, 1.0});
+    declare_and_get_parameters("goals_labels", goals_label, {"G1"});
+
+    if (raw_poses.size() % 7 != 0)
+    {
+      RCLCPP_FATAL(node->get_logger(), "goals_poses must be 7*N. Got %zu", raw_poses.size());
+      return false;
+    }
+
+    param_goals_.clear();
+    for (size_t i = 0; i < raw_poses.size() / 7; ++i)
+    {
+      size_t idx = i * 7;
+      Goal g;
+      g.x = Eigen::Vector3d(raw_poses[idx], raw_poses[idx + 1], raw_poses[idx + 2]);
+      g.q = Eigen::Quaterniond(raw_poses[idx + 6], raw_poses[idx + 3], raw_poses[idx + 4],
+                               raw_poses[idx + 5]);
+      g.q.normalize();
+      g.c = 0.0; // Initial confidence
+
+      param_goals_[goals_label[i]] = g;
+    }
+
+    RCLCPP_INFO(node->get_logger(), "Loaded %zu goals into map.", param_goals_.size());
+    return true;
+  }
+
+  void SharedControlVelocityController::setup_publishers()
+  {
+    auto node = get_node();
+
+    latest_twist_pub_ =
+        node->create_publisher<geometry_msgs::msg::Twist>("/debug/latest_twist", 10);
+    initial_filtered_linear_velocity_pub_ = node->create_publisher<geometry_msgs::msg::Vector3>(
+        "/debug/initial_filtered_linear_velocity", 10);
+    initial_filtered_angular_velocity_pub_ = node->create_publisher<geometry_msgs::msg::Vector3>(
+        "/debug/initial_filtered_angular_velocity", 10);
+    assisted_linear_velocity_pub_ =
+        node->create_publisher<geometry_msgs::msg::Vector3>("/debug/assisted_linear_velocity", 10);
+    assisted_angular_velocity_pub_ =
+        node->create_publisher<geometry_msgs::msg::Vector3>("/debug/assisted_angular_velocity", 10);
+    filtered_linear_velocity_pub_ = node->create_publisher<geometry_msgs::msg::Vector3>(
+        "/debug/final_filtered_linear_velocity", 10);
+    filtered_angular_velocity_pub_ = node->create_publisher<geometry_msgs::msg::Vector3>(
+        "/debug/final_filtered_angular_velocity", 10);
+    conf_pub_ =
+        node->create_publisher<std_msgs::msg::Float64MultiArray>("/debug/goal_confidences", 10);
+    soft_goal_pub_ =
+        node->create_publisher<geometry_msgs::msg::PoseStamped>("/debug/soft_goal", 10);
+    agnostic_goal_pub_ =
+        node->create_publisher<geometry_msgs::msg::PoseStamped>("/debug/agnostic_goal", 10);
+    beep_pub_ = node->create_publisher<std_msgs::msg::Bool>("/feedback/beep_trigger", 10);
+    goal_reached_pub_ = node->create_publisher<std_msgs::msg::String>("/debug/goal_reached", 10);
+    mode_pub_ = node->create_publisher<std_msgs::msg::Int32>("/debug/mode", 10);
+  }
+
+  bool SharedControlVelocityController::init_robot_interface()
+  {
+    auto node = get_node();
+    std::string robot_type, base_frame, tool_frame, robot_description;
+
+    declare_and_get_parameters("robot_type", robot_type, std::string("kinova_velocity"));
+    declare_and_get_parameters("base_frame", base_frame, std::string("base_link"));
+    declare_and_get_parameters("tool_frame", tool_frame, std::string("end_effector_link"));
+
+    if (!node->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Missing robot_description");
+      return false;
+    }
+
+    robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
+    return robot_vel_interface_ &&
+           robot_vel_interface_->initKinematics(robot_description, base_frame, tool_frame);
   }
 
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
   SharedControlVelocityController::on_configure(const rclcpp_lifecycle::State &)
   {
-    //------------------------------------------------------------------------------
-    // Parameters declaration and loading
-    //------------------------------------------------------------------------------
+    auto node = get_node();
 
-    // Check and declare parameters only if not already declared.
-    // Flags to activate or desactive functions
-    if (!get_node()->has_parameter("enable_shared_control_assistance"))
-      get_node()->declare_parameter("enable_shared_control_assistance", true);
-    if (!get_node()->has_parameter("enable_velocity_saturation"))
-      get_node()->declare_parameter("enable_velocity_saturation", true);
-    if (!get_node()->has_parameter("enable_debug_publish"))
-      get_node()->declare_parameter("enable_debug_publish", false);
+    load_parameters();
 
-    // Low-pass filters parameters
-    if (!get_node()->has_parameter("initial_filter_cutoff_frequency"))
-      get_node()->declare_parameter("initial_filter_cutoff_frequency", 0.8);
-    if (!get_node()->has_parameter("final_filter_cutoff_frequency"))
-      get_node()->declare_parameter("final_filter_cutoff_frequency", 5.0);
-
-    // Velocity saturation parameters
-    if (!get_node()->has_parameter("max_linear_delta"))
-      get_node()->declare_parameter("max_linear_delta", 0.007);
-    if (!get_node()->has_parameter("max_angular_delta"))
-      get_node()->declare_parameter("max_angular_delta", 0.014);
-
-    // Shared control parameters
-    if (!get_node()->has_parameter("gamma"))
-      get_node()->declare_parameter("gamma", 3.0); // adimensional
-    if (!get_node()->has_parameter("r2"))
-      get_node()->declare_parameter("r2", 0.040); // m
-    if (!get_node()->has_parameter("theta1_deg"))
-      get_node()->declare_parameter("theta1_deg", 8.0); // deg
-    if (!get_node()->has_parameter("theta2_deg"))
-      get_node()->declare_parameter("theta2_deg", 4.0); // deg
-
-    // Parameters for goal confidence update
-    if (!get_node()->has_parameter("alpha_conf"))
-      get_node()->declare_parameter("alpha_conf", 5.0); // s-1
-    if (!get_node()->has_parameter("theta_l_deg"))
-      get_node()->declare_parameter("theta_l_deg", 10.0); // deg
-    if (!get_node()->has_parameter("r1"))
-      get_node()->declare_parameter("r1", 0.08); // m
-    if (!get_node()->has_parameter("v_j_max"))
-      get_node()->declare_parameter("v_j_max", 0.04); // m/s
-
-    // Read parameters from config file
-    alpha_conf_ = get_node()->get_parameter("alpha_conf").as_double();
-    theta_l_ = get_node()->get_parameter("theta_l_deg").as_double() * M_PI /
-               180.0; // convert once because std::cos() expects radians
-    r1_ = get_node()->get_parameter("r1").as_double();
-    v_j_max_ = get_node()->get_parameter("v_j_max").as_double();
-    gamma_ = get_node()->get_parameter("gamma").as_double();
-    r2_ = get_node()->get_parameter("r2").as_double();
-    theta1_ = get_node()->get_parameter("theta1_deg").as_double() * M_PI / 180.0;
-    theta2_ = get_node()->get_parameter("theta2_deg").as_double() * M_PI / 180.0;
-    enable_shared_control_assistance_ =
-        get_node()->get_parameter("enable_shared_control_assistance").as_bool();
-    enable_velocity_saturation_ = get_node()->get_parameter("enable_velocity_saturation").as_bool();
-    enable_debug_publish_ = get_node()->get_parameter("enable_debug_publish").as_bool();
-    initial_filter_cutoff_frequency_ =
-        get_node()->get_parameter("initial_filter_cutoff_frequency").as_double();
-    final_filter_cutoff_frequency_ =
-        get_node()->get_parameter("final_filter_cutoff_frequency").as_double();
-    max_linear_delta_ = get_node()->get_parameter("max_linear_delta").as_double();
-    max_angular_delta_ = get_node()->get_parameter("max_angular_delta").as_double();
-
-    /* -- Load multiple goals if available -- */
-    // Not possible to load params as vector of vectors, need to declare a flat vector
-    if (!get_node()->has_parameter("goals_poses"))
+    if (!configure_goals())
     {
-      get_node()->declare_parameter<std::vector<double>>(
-          "goals_poses", {0.605, 0.220, 0.278, 1.000, 0.003, 0.004, -0.001});
-    }
-
-    goals_poses_param_.clear();
-
-    // Check goals are defined as a list of 7*N values, N being the number of goals
-    auto goals_vector = get_node()->get_parameter("goals_poses").as_double_array();
-    if (goals_vector.size() % 7 != 0)
-    {
-      RCLCPP_FATAL(get_node()->get_logger(),
-                   "'goals_poses' must be 7*N values: [x y z qx qy qz qw] × N. Got %zu.",
-                   goals_vector.size());
       return CallbackReturn::ERROR;
     }
 
-    // Parse and push back goals
-    const size_t N = goals_vector.size() / 7;
-    goals_poses_param_.reserve(N);
-
-    for (size_t k = 0; k < N; ++k)
+    setup_publishers();
+    if (!init_robot_interface())
     {
-      std::array<double, 7> goal{
-          goals_vector[7 * k + 0], goals_vector[7 * k + 1], goals_vector[7 * k + 2], // x y z
-          goals_vector[7 * k + 3], goals_vector[7 * k + 4], goals_vector[7 * k + 5], // qx qy qz
-          goals_vector[7 * k + 6]                                                    // qw
-      };
-      goals_poses_param_.push_back(goal);
-    }
-
-    // Log goals in console
-    RCLCPP_INFO(get_node()->get_logger(), "Loaded %zu 6D goal(s).", N);
-    for (size_t k = 0; k < N; ++k)
-    {
-      const auto &goal = goals_poses_param_[k];
-      const double qnorm =
-          std::sqrt(goal[3] * goal[3] + goal[4] * goal[4] + goal[5] * goal[5] + goal[6] * goal[6]);
-      RCLCPP_INFO(get_node()->get_logger(),
-                  "  G%zu: pos=[%.3f, %.3f, %.3f], q=[w=%.3f, x=%.3f, y=%.3f, z=%.3f] (||q||=%.4f)",
-                  k + 1, goal[0], goal[1], goal[2], goal[6], goal[3], goal[4], goal[5], qnorm);
-      if (qnorm < 1e-9)
-      {
-        RCLCPP_WARN(get_node()->get_logger(), "    G%zu quaternion norm ≈ 0 — will use identity.",
-                    k + 1);
-      }
-      else if (std::abs(qnorm - 1.0) > 1e-2)
-      {
-        RCLCPP_WARN(get_node()->get_logger(), "    G%zu quaternion not unit — will be normalized.",
-                    k + 1);
-      }
-    }
-
-    /* -- Reach feedback params -- */
-    if (!get_node()->has_parameter("eps_t_reach_m"))
-      get_node()->declare_parameter("eps_t_reach_m", 0.01); // 1 cm
-    if (!get_node()->has_parameter("eps_r_reach_deg"))
-      get_node()->declare_parameter("eps_r_reach_deg", 5.0); // 5 deg
-    if (!get_node()->has_parameter("reach_dwell_ms"))
-      get_node()->declare_parameter("reach_dwell_ms", 300); // 300 ms
-
-    eps_t_reach_ = get_node()->get_parameter("eps_t_reach_m").as_double();
-    eps_r_reach_rad_ = get_node()->get_parameter("eps_r_reach_deg").as_double() * M_PI / 180.0;
-    dwell_ms_ = get_node()->get_parameter("reach_dwell_ms").as_int();
-
-    // Known goals (can be different from goals_poses_param)
-    if (!get_node()->has_parameter("known_goals_poses"))
-    {
-      get_node()->declare_parameter<std::vector<double>>("known_goals_poses",
-                                                         std::vector<double>{});
-    }
-    if (!get_node()->has_parameter("known_goals_labels"))
-    {
-      get_node()->declare_parameter<std::vector<std::string>>("known_goals_labels",
-                                                              std::vector<std::string>{});
-    }
-
-    known_goals_poses_param_.clear();
-    known_goals_labels_.clear();
-
-    const auto known_goals_vector =
-        get_node()->get_parameter("known_goals_poses").as_double_array();
-    const auto kg_labels = get_node()->get_parameter("known_goals_labels").as_string_array();
-    known_goals_labels_.assign(kg_labels.begin(), kg_labels.end());
-
-    // Must be 7*N
-    if (known_goals_vector.size() % 7 != 0)
-    {
-      RCLCPP_FATAL(get_node()->get_logger(),
-                   "'known_goals_poses' must be 7*N values: [x y z qx qy qz qw] × N. Got %zu.",
-                   known_goals_vector.size());
       return CallbackReturn::ERROR;
     }
-
-    const size_t K = known_goals_vector.size() / 7;
-    known_goals_poses_param_.reserve(K);
-
-    for (size_t k = 0; k < K; ++k)
-    {
-      std::array<double, 7> goal{
-          known_goals_vector[7 * k + 0], known_goals_vector[7 * k + 1],
-          known_goals_vector[7 * k + 2], // x y z
-          known_goals_vector[7 * k + 3], known_goals_vector[7 * k + 4],
-          known_goals_vector[7 * k + 5], // qx qy qz
-          known_goals_vector[7 * k + 6]  // qw
-      };
-      known_goals_poses_param_.push_back(goal);
-    }
-
-    // Log known goals in console
-    RCLCPP_INFO(get_node()->get_logger(), "Loaded %zu known 6D goal(s).", K);
-    for (size_t k = 0; k < K; ++k)
-    {
-      const auto &known_goal = known_goals_poses_param_[k];
-      const double qnorm = std::sqrt(known_goal[3] * known_goal[3] + known_goal[4] * known_goal[4] +
-                                     known_goal[5] * known_goal[5] + known_goal[6] * known_goal[6]);
-      const bool has_label = (k < known_goals_labels_.size() && !known_goals_labels_[k].empty());
-      const char *label = has_label ? known_goals_labels_[k].c_str() : nullptr;
-
-      if (label)
-      {
-        RCLCPP_INFO(
-            get_node()->get_logger(),
-            "  KG%zu '%s': pos=[%.3f, %.3f, %.3f], q=[w=%.3f, x=%.3f, y=%.3f, z=%.3f] (||q||=%.4f)",
-            k + 1, label, known_goal[0], known_goal[1], known_goal[2], known_goal[6], known_goal[3],
-            known_goal[4], known_goal[5], qnorm);
-      }
-      else
-      {
-        RCLCPP_INFO(
-            get_node()->get_logger(),
-            "  KG%zu: pos=[%.3f, %.3f, %.3f], q=[w=%.3f, x=%.3f, y=%.3f, z=%.3f] (||q||=%.4f)",
-            k + 1, known_goal[0], known_goal[1], known_goal[2], known_goal[6], known_goal[3],
-            known_goal[4], known_goal[5], qnorm);
-      }
-
-      if (qnorm < 1e-9)
-      {
-        RCLCPP_WARN(get_node()->get_logger(),
-                    "    KG%zu quaternion norm ≈ 0 — will use identity at check time.", k + 1);
-      }
-      else if (std::abs(qnorm - 1.0) > 1e-2)
-      {
-        RCLCPP_WARN(get_node()->get_logger(),
-                    "    KG%zu quaternion not unit — will be normalized at check time.", k + 1);
-      }
-    }
-
-    //------------------------------------------------------------------------------
-    // Debug publishers
-    //------------------------------------------------------------------------------
-    latest_twist_pub_ =
-        get_node()->create_publisher<geometry_msgs::msg::Twist>("/debug/latest_twist", 10);
-    initial_filtered_linear_velocity_pub_ =
-        get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-            "/debug/initial_filtered_linear_velocity", 10);
-    initial_filtered_angular_velocity_pub_ =
-        get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-            "/debug/initial_filtered_angular_velocity", 10);
-    assisted_linear_velocity_pub_ = get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-        "/debug/assisted_linear_velocity", 10);
-    assisted_angular_velocity_pub_ = get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-        "/debug/assisted_angular_velocity", 10);
-    filtered_linear_velocity_pub_ = get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-        "/debug/final_filtered_linear_velocity", 10);
-    filtered_angular_velocity_pub_ = get_node()->create_publisher<geometry_msgs::msg::Vector3>(
-        "/debug/final_filtered_angular_velocity", 10);
-    conf_pub_ = get_node()->create_publisher<std_msgs::msg::Float64MultiArray>(
-        "/debug/goal_confidences", 10); // goal confidences
-    soft_goal_pub_ =
-        get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("/debug/soft_goal", 10);
-    agnostic_goal_pub_ =
-        get_node()->create_publisher<geometry_msgs::msg::PoseStamped>("/debug/agnostic_goal", 10);
-    beep_pub_ = get_node()->create_publisher<std_msgs::msg::Bool>("/feedback/beep_trigger", 10);
-    goal_reached_pub_ =
-        get_node()->create_publisher<std_msgs::msg::Int32>("/debug/goal_reached", 10);
-    mode_pub_ = get_node()->create_publisher<std_msgs::msg::Int32>("/debug/mode", 10);
-
-    //------------------------------------------------------------------------------
-    // Logging
-    //------------------------------------------------------------------------------
-    RCLCPP_INFO(get_node()->get_logger(), "Active Functions:");
-    RCLCPP_INFO(get_node()->get_logger(), "  Shared control: %s",
-                enable_shared_control_assistance_ ? "ON" : "OFF");
-    RCLCPP_INFO(get_node()->get_logger(), "  Velocity saturation: %s",
-                enable_velocity_saturation_ ? "ON" : "OFF");
-    RCLCPP_INFO(get_node()->get_logger(), "  Debug publish:       %s",
-                enable_debug_publish_ ? "ON" : "OFF");
-
-    RCLCPP_INFO(get_node()->get_logger(), "Filtering and Saturation Parameters");
-    RCLCPP_INFO(get_node()->get_logger(), "  Initial filter frequency: %.1f",
-                initial_filter_cutoff_frequency_);
-    RCLCPP_INFO(get_node()->get_logger(), "  Final filter frequency: %.1f",
-                final_filter_cutoff_frequency_);
-    RCLCPP_INFO(get_node()->get_logger(), "  max_linear_delta: %.4f", max_linear_delta_);
-    RCLCPP_INFO(get_node()->get_logger(), "  max_angular_delta: %.4f", max_angular_delta_);
-
-    // ---------- Shared Control parameters ----------
-    RCLCPP_INFO(get_node()->get_logger(), "Shared Control Parameters:");
-    RCLCPP_INFO(get_node()->get_logger(), "  alpha_conf:          %.1f  [s^-1]", alpha_conf_);
-    RCLCPP_INFO(get_node()->get_logger(), "  theta_l:             %.1f  [deg]",
-                get_node()->get_parameter("theta_l_deg").as_double());
-    RCLCPP_INFO(get_node()->get_logger(), "  gamma:              %.1f", gamma_);
-    RCLCPP_INFO(get_node()->get_logger(), "  r1:                 %.3f  [m]", r1_);
-    RCLCPP_INFO(get_node()->get_logger(), "  r2:                 %.3f  [m]", r2_);
-    RCLCPP_INFO(get_node()->get_logger(), "  v_j_max:            %.3f  [m/s]", v_j_max_);
-    RCLCPP_INFO(get_node()->get_logger(), "Reach Feedback:");
-    RCLCPP_INFO(get_node()->get_logger(),
-                "  eps_t_reach: %.3f m, eps_r_reach: %.1f deg, dwell: %d ms", eps_t_reach_,
-                get_node()->get_parameter("eps_r_reach_deg").as_double(), dwell_ms_);
-
-    // Declare robot/hardware-related params if missing
-    if (!get_node()->has_parameter("robot_type"))
-      get_node()->declare_parameter("robot_type", "kinova_velocity");
-    if (!get_node()->has_parameter("base_frame"))
-      get_node()->declare_parameter("base_frame", "base_link");
-    if (!get_node()->has_parameter("tool_frame"))
-      get_node()->declare_parameter("tool_frame", "end_effector_link");
-
-    // Input twist frame parameter ("base" or "ee")
-    if (!get_node()->has_parameter("input_twist_frame"))
-      get_node()->declare_parameter("input_twist_frame", "base");
-
-    input_twist_frame_ = get_node()->get_parameter("input_twist_frame").as_string();
-    if (input_twist_frame_ != "base" && input_twist_frame_ != "ee")
-    {
-      RCLCPP_WARN(get_node()->get_logger(),
-                  "Invalid input_twist_frame='%s'. Allowed: 'base' or 'ee'. Forcing 'base'.",
-                  input_twist_frame_.c_str());
-      input_twist_frame_ = std::string("base");
-    }
-    RCLCPP_INFO(get_node()->get_logger(), "Input twist frame: %s", input_twist_frame_.c_str());
-
-    std::string robot_type = get_node()->get_parameter("robot_type").as_string();
-    robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
-    if (!robot_vel_interface_)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "Failed to create robot interface for type '%s'",
-                   robot_type.c_str());
-      return CallbackReturn::ERROR;
-    }
-
-    // Provide node interfaces to the robot component so it can create subscriptions immediately
-    robot_vel_interface_->setNodeInterfaces(get_node());
-    // Configure FK frames consistent with URDF
-    const std::string base_frame = get_node()->get_parameter("base_frame").as_string();
-    const std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
-    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
 
     return CallbackReturn::SUCCESS;
   }
 
-  CallbackReturn SharedControlVelocityController::on_activate(
-      const rclcpp_lifecycle::State & /*previous_state*/)
+  void SharedControlVelocityController::reset_controller_state()
   {
-    // Assign the loaned command interfaces to the Franka Cartesian Velocity Interface.
-    robot_vel_interface_->assign_loaned_command(command_interfaces_);
-    robot_vel_interface_->assign_loaned_state(state_interfaces_);
-
-    // Reset filtering and saturation
     previous_initial_filtered_linear_velocity_.setZero();
     previous_initial_filtered_angular_velocity_.setZero();
     previous_cartesian_linear_velocity_.setZero();
@@ -404,17 +218,48 @@ namespace cartesian_velocity_controller
     previous_filtered_angular_velocity_.setZero();
 
     lpf_initialized_ = false;
-    latest_twist_ = geometry_msgs::msg::Twist{}; // zeros
-    last_reached_goal_idx_ = -1;
+    latest_twist_ = geometry_msgs::msg::Twist{};
+    last_reached_goal_id_ = "";
     beeped_for_this_visit_ = false;
+  }
 
-    // Set current pose and initialise Goals
-    robot_interfaces::CartesianPosition temp_pose =
-        robot_vel_interface_->getCurrentEndEffectorPose();
+  void SharedControlVelocityController::update_current_pose()
+  {
+    auto temp_pose = robot_vel_interface_->getCurrentEndEffectorPose();
     current_position_ = temp_pose.translation;
     current_orientation_ = temp_pose.quaternion;
+  }
 
-    initialiseGoals();
+  void SharedControlVelocityController::activate_goals()
+  {
+    active_goals_.clear();
+
+    Goal agnostic;
+    agnostic.x = current_position_;
+    agnostic.q = current_orientation_;
+    agnostic.c = 1.0;
+    active_goals_["G0"] = agnostic;
+
+    // 2. Load the STATIC goals from the cache
+    for (const auto &g : param_goals_)
+    {
+      active_goals_.insert({g.first, g.second});
+    }
+
+    RCLCPP_INFO(get_node()->get_logger(), "Activated with %zu user goals + G0 Agnostic.",
+                active_goals_.size() - 1);
+  }
+
+  CallbackReturn SharedControlVelocityController::on_activate(
+      const rclcpp_lifecycle::State & /*previous_state*/)
+  {
+    robot_vel_interface_->assign_loaned_command(command_interfaces_);
+    robot_vel_interface_->assign_loaned_state(state_interfaces_);
+
+    reset_controller_state();
+    update_current_pose();
+
+    activate_goals();
 
     if (mode_pub_)
     {
@@ -438,6 +283,7 @@ namespace cartesian_velocity_controller
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
 
+    typedef extender_msgs::msg::TeleopCommand Mode;
     /* -- Update state variables --*/
     // Get time
     const rclcpp::Time now = get_node()->now();
@@ -449,10 +295,10 @@ namespace cartesian_velocity_controller
     current_position_ = temp_pose.translation;
     current_orientation_ = temp_pose.quaternion;
     // Sync agnostic goal: G0 pose = current EE pose
-    if (!goals_.empty())
+    if (!active_goals_.empty())
     {
-      goals_[0].x = current_position_;
-      goals_[0].q = current_orientation_;
+      active_goals_["G0"].x = current_position_;
+      active_goals_["G0"].q = current_orientation_;
     }
 
     /* -- Raw velocities from fr3_teleop twist -- */
@@ -505,7 +351,7 @@ namespace cartesian_velocity_controller
     // else: base frame -> do nothing
 
     /* -- Update Goals confidences only in MODE T (Translation_Rotation) -- */
-    if (mode_ == TeleopMode::Translation_Rotation)
+    if (mode_ == Mode::TRANSLATION_ROTATION)
     {
       updateConfidences(dt_sec, initial_filtered_linear_velocity);
     }
@@ -526,7 +372,7 @@ namespace cartesian_velocity_controller
       // -- Shared control assistance -- //
       switch (mode_)
       {
-      case TeleopMode::Translation_Rotation: { // MODE T
+      case Mode::TRANSLATION_ROTATION: { // MODE T
 
         auto [shaped_velocity, shaped_omega] = applySharedControlModeT(
             soft_goal, current_position_, current_orientation_, initial_filtered_linear_velocity);
@@ -535,7 +381,7 @@ namespace cartesian_velocity_controller
         cartesian_angular_velocity = shaped_omega;
         break;
       }
-      case TeleopMode::Rotation: { // MODE W
+      case Mode::ROTATION: { // MODE W
         auto [shaped_velocity, shaped_omega] =
             applySharedControlModeW(soft_goal, current_position_, current_orientation_,
                                     initial_filtered_angular_velocity_base);
@@ -555,27 +401,28 @@ namespace cartesian_velocity_controller
       // --- Baseline: agnostic control mode ---
       switch (mode_)
       {
-      case TeleopMode::Translation_Rotation: {
+      case Mode::TRANSLATION_ROTATION: {
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         // Compute baseline angular velocity to keep wrist aligned
         cartesian_angular_velocity =
             computeBaselineAngularVelocity(current_position_, cartesian_linear_velocity);
         break;
       }
-      case TeleopMode::Rotation: {
+      case Mode::ROTATION: {
         cartesian_linear_velocity.setZero();
         // User commands rotation in the end-effector frame, command is sent to robot in base frame
         cartesian_angular_velocity = initial_filtered_angular_velocity_base;
         break;
       }
-      case TeleopMode::Translation: {
+      case Mode::TRANSLATION: {
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         cartesian_angular_velocity.setZero();
         break;
       }
       // TODO: legacy, to remove
-      case TeleopMode::Both: { // not like Mode W, just to use spacenav as full 6D joystick
+      case Mode::BOTH: { // not like Mode W, just to use spacenav as
+                         // full 6D joystick
         // Used for debug in advanced mode: allow_full_mode = true in fr3_teleop
         cartesian_linear_velocity = initial_filtered_linear_velocity;
         cartesian_angular_velocity = initial_filtered_angular_velocity;
@@ -659,31 +506,11 @@ namespace cartesian_velocity_controller
 
   } // update()
 
-  // -----------------------------------------------------------------------------
-  // teleopCmdCallback()
-  // -----------------------------------------------------------------------------
-  // Receives joystick commands from the /teleop_cmd topic and updates the internal
-  // teleoperation state.
-  //
-  // The incoming message contains:
-  //   • msg->twist : geometry_msgs::Twist with user linear/angular velocity commands
-  //   • msg->mode  : integer enum corresponding to a TeleopMode (e.g. Translation,
-  //                  Rotation, or Translation_Rotation)
-  //
-  // The callback updates the latest twist command and switches control mode if it
-  // differs from the current one. In all cases, the current mode is published on
-  // the /debug/mode topic for visualization and logging.
-  // -----------------------------------------------------------------------------
   void SharedControlVelocityController::teleopCmdCallback(
-      const joystick_interface::msg::TeleopCmd::SharedPtr msg)
+      const extender_msgs::msg::TeleopCommand::SharedPtr msg)
   {
     latest_twist_ = msg->twist;
-    const TeleopMode new_mode = static_cast<TeleopMode>(msg->mode);
-
-    if (new_mode != mode_)
-    {
-      mode_ = new_mode;
-    }
+    mode_ = msg->mode;
 
     // Always publish current mode (either new or unchanged)
     if (mode_pub_)
@@ -694,17 +521,42 @@ namespace cartesian_velocity_controller
     }
   }
 
-  // -----------------------------------------------------------------------------
-  // computeDistanceAndDirection()
-  // -----------------------------------------------------------------------------
-  // Computes the Euclidean distance ε_d and unit direction û from the current
-  // end-effector position x_E to the goal position x_G.
-  //
-  // Returns a pair {ε_d, û}, where:
-  //   ε_d = ‖x_G − x_E‖
-  //   û   = (x_G − x_E) / ε_d   if ε_d > 0
-  //       = [1, 0, 0]ᵀ          otherwise (default axis)
-  // -----------------------------------------------------------------------------
+  void SharedControlVelocityController::goalCallback(
+      const extender_msgs::msg::SharedControlGoalArray::SharedPtr msg)
+  {
+    if (msg->goal_array.empty())
+    {
+      return;
+    }
+
+    for (const auto &g : msg->goal_array)
+    {
+      if (active_goals_.find(std::to_string(g.id)) != active_goals_.end())
+      {
+        // Update existing goal
+        active_goals_[std::to_string(g.id)].x =
+            Eigen::Vector3d(g.goal_pose.position.x, g.goal_pose.position.y, g.goal_pose.position.z);
+        active_goals_[std::to_string(g.id)].q =
+            Eigen::Quaterniond(g.goal_pose.orientation.w, g.goal_pose.orientation.x,
+                               g.goal_pose.orientation.y, g.goal_pose.orientation.z);
+        active_goals_[std::to_string(g.id)].q.normalize();
+        continue;
+      }
+      else
+      {
+        Goal new_goal;
+        new_goal.x =
+            Eigen::Vector3d(g.goal_pose.position.x, g.goal_pose.position.y, g.goal_pose.position.z);
+        new_goal.q = Eigen::Quaterniond(g.goal_pose.orientation.w, g.goal_pose.orientation.x,
+                                        g.goal_pose.orientation.y, g.goal_pose.orientation.z);
+        new_goal.q.normalize();
+        new_goal.c = 0.0; // Initial confidence
+
+        active_goals_[std::to_string(g.id)] = new_goal;
+      }
+    }
+  }
+
   std::pair<double, Eigen::Vector3d> SharedControlVelocityController::computeDistanceAndDirection(
       const Eigen::Vector3d &goal_position, const Eigen::Vector3d &current_position) const
   {
@@ -720,28 +572,6 @@ namespace cartesian_velocity_controller
     return {distance, unit_axis_u};
   }
 
-  // -----------------------------------------------------------------------------
-  // computeRotationError()
-  // -----------------------------------------------------------------------------
-  // Computes the minimal 3D rotation required to align the current end-effector
-  // orientation (q_current) with the desired goal orientation (q_goal).
-  //
-  // The relative rotation quaternion is defined as:
-  //     q_err = q_goal * q_current.conjugate()
-  // which represents the rotation that transforms the current frame to the goal
-  // frame.
-  //
-  // Because unit quaternions q and -q represent the same physical rotation,
-  // the scalar part w is flipped to ensure w ≥ 0 so that the shortest rotation
-  // path is always used to avoid discontinuities.
-  //
-  // The Eigen::AngleAxisd representation is then used to extract:
-  //   • angle  θ  = angle_axis.angle()       total rotation angle ε_r ∈ [0, π]
-  //   • axis   ŵ  = angle_axis.axis()        unit rotation axis
-  //   • e_R = θ * ŵ                          SO(3) logarithmic map (rotation vector)
-  //
-  // Returns a RotationError struct { angle, axis, rotation_vector }.
-  // -----------------------------------------------------------------------------
   auto SharedControlVelocityController::computeRotationError(
       const Eigen::Quaterniond &q_goal, const Eigen::Quaterniond &q_current) const -> RotationError
   {
@@ -763,134 +593,12 @@ namespace cartesian_velocity_controller
     return RotationError{theta, axis, rotation_vector};
   }
 
-  // -----------------------------------------------------------------------------
-  // applyLowPassFilterVector()
-  // -----------------------------------------------------------------------------
-  // Applies a first-order discrete low-pass filter to a 3D input vector.
-  //
-  // Implements the standard exponential smoothing form:
-  //     y[n] = α * x[n] + (1 - α) * y[n-1]
-  // where:
-  //   • x[n]       current (raw) input vector
-  //   • y[n-1]     previously filtered output
-  //   • α ∈ [0,1]  filter gain (computed as T / (T + τ))
-  //
-  // Interpretation:
-  //   - α = 1  minimal filtering (fast response)
-  //   - α = 0  strong filtering (slow response)
-  //   - τ      time constant of the filter (s)
-  //   - T      sampling period (s)
-  //
-  // This filter is applied component-wise on the input Eigen::Vector3d.
-  // It is used to smooth measured or commanded Cartesian velocities.
-  // -----------------------------------------------------------------------------
   Eigen::Vector3d SharedControlVelocityController::applyLowPassFilterVector(
       const Eigen::Vector3d &input, const Eigen::Vector3d &previous, double alpha)
   {
     return alpha * input + (1.0 - alpha) * previous;
   }
 
-  // -----------------------------------------------------------------------------
-  // initialiseGoals()
-  // -----------------------------------------------------------------------------
-  // Initializes the internal list of 6D goals used by the shared-control system.
-  //
-  // The function constructs the following goal set:
-  //
-  //   • G₀ — Agnostic goal (current EE pose, confidence = 1.0)
-  //     Acts as a fallback and ensures continuity when no specific goal dominates.
-  //
-  //   • G₁…Gₙ — User-defined 6D goals loaded from the 'goals_poses' parameter,
-  //     each defined as [x, y, z, qx, qy, qz, qw].
-  //
-  // Each goal is stored as a Goal struct { x, q, c }, where:
-  //   • x : 3D Cartesian position [m]
-  //   • q : normalized orientation quaternion (Eigen convention w,x,y,z)
-  //   • c : confidence (initialized to 1.0 for G₀, 0.0 for others)
-  //
-  // Quaternions are automatically normalized; degenerate inputs (‖q‖ ≈ 0) are
-  // replaced with the identity rotation to ensure stability.
-  //
-  // Logs all initialized goals and their parameters for verification.
-  //
-  // -----------------------------------------------------------------------------
-  void SharedControlVelocityController::initialiseGoals()
-  {
-    goals_.clear();
-
-    // ---------------------------------------------------------------------
-    // [G0] AGNOSTIC GOAL – current EE pose with confidence = 1
-    //     (guarantees continuity / fallback)
-    // ---------------------------------------------------------------------
-    goals_.push_back(Goal{current_position_, current_orientation_, 1.0});
-    RCLCPP_INFO(get_node()->get_logger(),
-                "G0 (agnostic): pos=[%.3f, %.3f, %.3f], q=[w=%.3f, x=%.3f, y=%.3f, z=%.3f]",
-                current_position_.x(), current_position_.y(), current_position_.z(),
-                current_orientation_.w(), current_orientation_.x(), current_orientation_.y(),
-                current_orientation_.z());
-
-    // ---------------------------------------------------------------------
-    // [G1…Gn] USER-DEFINED GOALS
-    //  • strictly 6D
-    // ---------------------------------------------------------------------
-    const size_t N = goals_poses_param_.size();
-    for (size_t k = 0; k < N; ++k)
-    {
-      const auto &goal = goals_poses_param_[k]; // [x y z qx qy qz qw]
-
-      const Eigen::Vector3d position(goal[0], goal[1], goal[2]);
-      Eigen::Quaterniond orientation_quaternion(goal[6], goal[3], goal[4],
-                                                goal[5]); // Eigen (w,x,y,z)
-
-      const double n = orientation_quaternion.norm();
-      if (n < 1e-9)
-      {
-        RCLCPP_WARN(get_node()->get_logger(), "G%zu quaternion norm ≈ 0 → using identity.", k + 1);
-        orientation_quaternion = Eigen::Quaterniond::Identity();
-      }
-      else
-      {
-        orientation_quaternion.normalize();
-      }
-
-      goals_.push_back(Goal{position, orientation_quaternion, 0.0});
-      RCLCPP_INFO(get_node()->get_logger(),
-                  "G%zu: pos=[%.3f, %.3f, %.3f], q=[w=%.3f, x=%.3f, y=%.3f, z=%.3f]", k + 1,
-                  position.x(), position.y(), position.z(), orientation_quaternion.w(),
-                  orientation_quaternion.x(), orientation_quaternion.y(),
-                  orientation_quaternion.z());
-    }
-
-    RCLCPP_INFO(get_node()->get_logger(), "Initialized %zu 6D user goal(s) + G0 (agnostic).", N);
-  }
-
-  // -----------------------------------------------------------------------------
-  // updateConfidences()
-  // -----------------------------------------------------------------------------
-  // Implements the confidence integration mechanism from Algorithm 1
-  // to estimate which goal the user is currently moving toward.
-  //
-  // Each real goal Gᵢ (i≥1) has a confidence cᵢ ∈ [0,1] updated as:
-  //
-  //   ẋcᵢ = α_conf ⋅ (‖v_E‖ / v_Jmax) ⋅ ((cosφ_W − cosθ_l) / (1 − cosθ_l))
-  //
-  // where:
-  //   • cosφ_W = ( (W uᵢ)ᵀ (W v_E) ) / (‖W uᵢ‖ ‖W v_E‖)     weighted directional cosine
-  //   • W = diag(1, 1, z_scale)                             anisotropic weighting (to reduce
-  //   Z-sensitivity) • θ_l  = acceptance cone half-angle • α_conf = integration gain [s⁻¹]
-  //
-  // Integration occurs only if:
-  //   • the user’s motion speed ≥ v₁ (20 % threshold),
-  //   • and the end-effector is outside all freeze spheres (r_freeze = min(r₁, r₂)).
-  //
-  // Otherwise, confidence updates are frozen.
-  //
-  // The agnostic goal G₀ keeps c₀ = max(0, 1 − Σ cᵢ), ensuring total confidence sums to 1.
-  //
-  // Notes:
-  //   • θ-normalization ensures α_conf and θ_l are numerically decoupled.
-  //   • Weighted cosine uses explicit z-scaling on both uᵢ and v_E (z_scale = 0.2).
-  // -----------------------------------------------------------------------------
   void SharedControlVelocityController::updateConfidences(double dt, const Eigen::Vector3d &vE)
   {
     const double vJmax = v_j_max_;              // measure once
@@ -916,10 +624,12 @@ namespace cartesian_velocity_controller
 
     // --- Step 1: Freeze detection ---
     bool inside_any_r_freeze = false;
-    size_t freeze_idx = 0; // goal index (G1..Gn) responsible for the freeze
-    for (size_t i = 1; i < goals_.size(); ++i)
-    { // skip G0 (agnostic)
-      const auto distance_direction = computeDistanceAndDirection(goals_[i].x, current_position_);
+    for (const auto &[id, goal] : active_goals_)
+    {
+      if (id == "G0")
+        continue;
+
+      const auto distance_direction = computeDistanceAndDirection(goal.x, current_position_);
       const double epsilon_d_i = distance_direction.first;
       if (epsilon_d_i < r_freeze)
       {
@@ -932,11 +642,12 @@ namespace cartesian_velocity_controller
     if (!inside_any_r_freeze && speed_scale >= v1)
     {
       // Outside all r_freeze spheres: integrate confidences for all real goals
-      for (size_t i = 1; i < goals_.size(); ++i)
-      { // G2…Gn
+      for (auto &[id, goal] : active_goals_)
+      {
+        if (id == "G0")
+          continue;
 
-        const auto [epsilon_d, unit_axis] =
-            computeDistanceAndDirection(goals_[i].x, current_position_);
+        const auto [epsilon_d, unit_axis] = computeDistanceAndDirection(goal.x, current_position_);
 
         // Note: using variables names close to equations notation for clarity.
         // Weighted direction
@@ -964,36 +675,21 @@ namespace cartesian_velocity_controller
         // Eq. (8): cdot = α_conf * (‖v‖/vJmax) * (cos_phi_w − cos θ_l) / (1 − cos θ_l)
         const double cdot = alpha_conf_ * speed_scale * normalized_cone;
 
-        goals_[i].c = std::clamp(goals_[i].c + cdot * dt, 0.0, 1.0); // cGi[0,1]
+        goal.c = std::clamp(goal.c + cdot * dt, 0.0, 1.0); // cGi[0,1]
       }
-    }
-    else
-    {
-      // Debug: Freeze update info
-      /*
-      const double ed = (goals_[freeze_idx].x - current_position_).norm();
-      RCLCPP_INFO(
-        get_node()->get_logger(),
-        "[updateConfidences] FREEZE: inside r1 of goal G%zu — ed=%.3f . "
-        "No confidences updated this cycle.",
-        freeze_idx, ed);
-        */
     }
 
     // Agnostic confidence
     double sum = 0.0;
-    for (size_t i = 1; i < goals_.size(); ++i)
-      sum += goals_[i].c;
-    goals_[0].c = std::max(0.0, 1.0 - sum);
+    for (const auto &[id, goal] : active_goals_)
+    {
+      if (id == "G0")
+        continue;
+      sum += goal.c;
+    }
+    active_goals_["G0"].c = std::max(0.0, 1.0 - sum);
   }
 
-  // -----------------------------------------------------------------------------
-  // computeSoftGoal()
-  // -----------------------------------------------------------------------------
-  // Weighted soft goal synthesis (Eq. 4):
-  //   x_G = (∑ c_i x_i) / (∑ c_i)
-  //   r_G = argmax_eig  of  A = ∑ c_i (q_i q_iᵀ)  (Markley quaternion average)
-  // -----------------------------------------------------------------------------
   Goal SharedControlVelocityController::computeSoftGoal() const
   {
     double confidence_sum = 0.0;
@@ -1001,7 +697,7 @@ namespace cartesian_velocity_controller
     Eigen::Vector3d xG = Eigen::Vector3d::Zero();
     Eigen::Matrix4d markley_matrixQ = Eigen::Matrix4d::Zero(); // Markley accumulator
 
-    for (const auto &goal : goals_)
+    for (const auto &[id, goal] : active_goals_)
     {
       if (goal.c <= 0.0)
         continue;
@@ -1041,20 +737,6 @@ namespace cartesian_velocity_controller
     return {xG, rG, 1.0};
   }
 
-  // -----------------------------------------------------------------------------
-  // computeBaselineAngularVelocity()
-  // -----------------------------------------------------------------------------
-  // Computes the baseline angular velocity ω_{E,u,T} used in MODE T
-  // to keep the wrist aligned with the mobile (base) frame.
-  //
-  // Implements the geometric relationship:
-  //     ω_z = (x_E * v_y - y_E * v_x) / (x_E² + y_E²)
-  //
-  // This expression represents the instantaneous angular rate needed
-  // to maintain constant wrist orientation relative to the mobile frame
-  // during translational motion. When the end-effector moves purely
-  // along the base frame axes, ω_z = 0.
-  // -----------------------------------------------------------------------------
   Eigen::Vector3d SharedControlVelocityController::computeBaselineAngularVelocity(
       const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const
   {
@@ -1073,22 +755,6 @@ namespace cartesian_velocity_controller
     return Eigen::Vector3d(0.0, 0.0, omega_z_baseline); // ω_{E,u,T}
   }
 
-  // -----------------------------------------------------------------------------
-  // sigmaD()
-  // -----------------------------------------------------------------------------
-  // Implements the σ_d(d) distance-based blending gate used in Eq. (5):
-  //
-  //   σ_d(d) = 0                  for d ≤ r_near
-  //          = (d - r_near)/span  for r_near < d < r_far
-  //          = 1                  for d ≥ r_far
-  //
-  // where r_near = min(r₁, r₂) and r_far = max(r₁, r₂).
-  //
-  // This gate allows a smooth transition between pure user control (σ_d=0) and
-  // full shared control (σ_d=1) depending on the distance to the target.
-  //
-  // Degenerate case: if r₁ == r₂, σ_d becomes a binary step at r_near.
-  // -----------------------------------------------------------------------------
   double SharedControlVelocityController::sigmaD(double d) const
   {
     const double r_near = std::min(r1_, r2_);
@@ -1118,29 +784,6 @@ namespace cartesian_velocity_controller
     return (d - r_near) / span; // linear ramp for r_near < d < r_far
   }
 
-  // -----------------------------------------------------------------------------
-  // sigmaR()
-  // -----------------------------------------------------------------------------
-  // Implements the σ_r(ε_r) angular blending gate used in Eq. (18)
-  // to control how much rotational assistance is applied.
-  //
-  // Definition:
-  //     σ_r(ε_r) = 0                     for ε_r ≤ θ₂
-  //               = (ε_r - θ₂)/(θ₁ - θ₂)  for θ₂ < ε_r < θ₁
-  //               = 1                     for ε_r ≥ θ₁
-  //
-  // where:
-  //   • ε_r  = current orientation error angle [rad]
-  //   • θ₁, θ₂ = angular thresholds defining the transition region
-  //               (typically θ₁ > θ₂)
-  //
-  // The gate increases smoothly from 0 to 1 as the orientation
-  // error ε_r grows, allowing gradual blending between user-only
-  // control (σ_r = 0) and shared control (σ_r = 1).
-  //
-  // Degenerate case:
-  //   If θ₁ ≤ θ₂, the function logs a warning and returns σ_r = 0.
-  // -----------------------------------------------------------------------------
   double SharedControlVelocityController::sigmaR(double epsilon_r) const
   {
     const double denominator = theta1_ - theta2_;
@@ -1160,29 +803,6 @@ namespace cartesian_velocity_controller
     return (epsilon_r - theta2_) / denominator; // linear ramp
   }
 
-  // -----------------------------------------------------------------------------
-  // Shared-control shaping for MODE T (Translation)
-  //
-  // Equations:
-  //   (5)  v_E = v_{E,u,T} + σ_d · (γ − 1) · (û ûᵀ) · v_{E,u,T}
-  //   (15) ω_E = (1 − σ_d) · ω_{E,u,T} + σ_d · (‖v_E‖ · (ε_r / (ε_d − r₂)) · ŵ)
-  //
-  // Inputs:
-  //   - soft_goal.x : goal position x_G
-  //   - soft_goal.q : goal orientation q_G
-  //   - current_position    : end-effector position x_E (in base frame)
-  //   - current_orientation : end-effector orientation q_E (in base frame)
-  //   - initial_filtered_linear_velocity : user linear command v_J (filtered in base frame)
-  //
-  // Output:
-  //   - pair { linear_velocity_assisted v_E , omega_assisted ω_E }
-  //
-  // Notes:
-  //   • σ_d(ε_d) gates assistance based on distance to the goal.
-  //   • Only the goal-aligned velocity component v_∥ is scaled by γ; v_⊥ is preserved.
-  //   • ω_E blends between the baseline wrist alignment ω_{E,u,T} and orientation-driven
-  //     assistance proportional to ε_r / (ε_d − r₂).
-  // -----------------------------------------------------------------------------
   std::pair<Eigen::Vector3d, Eigen::Vector3d> SharedControlVelocityController::
       applySharedControlModeT(const Goal &soft_goal, const Eigen::Vector3d &current_position,
                               const Eigen::Quaterniond &current_orientation,
@@ -1248,30 +868,6 @@ namespace cartesian_velocity_controller
     return {linear_velocity_assisted, omega_assisted};
   }
 
-  // -----------------------------------------------------------------------------
-  // Shared-control shaping for MODE W (Rotation-only)
-  //
-  // Equations:
-  //   (18) σ_r(ε_r) = sat(0,1, (ε_r - θ2) / (θ1 - θ2))
-  //   (19) ω_E       = ω_{E,u,W} + γ · σ_r · (ŵ ŵᵀ) · ω_{E,u,W}
-  //   (20) v_E       = (x_G - x_E) × ω_E
-  //
-  // Inputs:
-  //   - soft_goal.x : goal position x_G
-  //   - soft_goal.q : goal orientation q_G
-  //   - current_position    : end-effector position x_E (in base frame)
-  //   - current_orientation : end-effector orientation q_E (in base frame)
-  //   - initial_filtered_angular_velocity_base : user angular command ω_{E,u,W} (already in base
-  //   frame)
-  //
-  // Output:
-  //   - pair { linear_velocity_assisted v_E , omega_assisted ω_E }
-  //
-  // Notes:
-  //   • ε_r and ŵ come from the shortest-path quaternion error log(q_G · q_E^{-1}).
-  //   • σ_r gates assistance by orientation error (no help near alignment).
-  //   • Linear velocity is the reorientation-only term so the EE rotates about x_G.
-  // -----------------------------------------------------------------------------
   std::pair<Eigen::Vector3d, Eigen::Vector3d> SharedControlVelocityController::
       applySharedControlModeW(const Goal &soft_goal, const Eigen::Vector3d &current_position,
                               const Eigen::Quaterniond &current_orientation,
@@ -1305,34 +901,6 @@ namespace cartesian_velocity_controller
     return {linear_velocity_assisted, omega_assisted};
   }
 
-  // -----------------------------------------------------------------------------
-  // applyVelocitySaturation()
-  // -----------------------------------------------------------------------------
-  // Limits the rate of change of both linear and angular Cartesian velocities
-  // between consecutive control cycles to prevent discontinuities or jerks.
-  //
-  // Implements element-wise saturation on each velocity component:
-  //
-  //   v_sat[i] = v_prev[i] + clamp(v_curr[i] - v_prev[i],
-  //                                -Δv_max, +Δv_max)
-  //
-  // where:
-  //   • v_prev : previous (already sent) velocity vector
-  //   • v_curr : newly computed velocity vector
-  //   • Δv_max : maximum allowed increment per control step
-  //
-  // Inputs:
-  //   - current_linear / current_angular : current velocity commands
-  //   - previous_linear / previous_angular : previous commanded velocities
-  //   - max_linear_delta / max_angular_delta : per-axis limits [m/s] / [rad/s]
-  //
-  // Returns:
-  //   pair { saturated_linear, saturated_angular }
-  //
-  // Notes:
-  //   • Prevents acceleration spikes and discontinuities caused by numerical noise
-  //     or abrupt joystick inputs.
-  // -----------------------------------------------------------------------------
   std::pair<Eigen::Vector3d, Eigen::Vector3d> SharedControlVelocityController::
       applyVelocitySaturation(const Eigen::Vector3d &current_linear,
                               const Eigen::Vector3d &previous_linear, const double max_linear_delta,
@@ -1357,13 +925,6 @@ namespace cartesian_velocity_controller
     return {saturated_linear, saturated_angular};
   }
 
-  // -----------------------------------------------------------------------------
-  // publishDebugData()
-  // -----------------------------------------------------------------------------
-  // Publishes all relevant debug signals for visualization and logging,
-  // including raw, guided, and filtered velocities, goal confidences,
-  // and poses (soft and agnostic goals) for RViz and PlotJuggler.
-  // -----------------------------------------------------------------------------
   void SharedControlVelocityController::publishDebugData(
       const geometry_msgs::msg::Twist &latest_twist,
       const Eigen::Vector3d &initial_filtered_linear_velocity,
@@ -1434,149 +995,120 @@ namespace cartesian_velocity_controller
     if (conf_pub_)
     {
       std_msgs::msg::Float64MultiArray cmsg;
-      cmsg.data.reserve(goals_.size());
-      for (const auto &g : goals_)
-        cmsg.data.push_back(g.c);
+      cmsg.data.reserve(active_goals_.size());
+      for (const auto &g : active_goals_)
+        cmsg.data.push_back(g.second.c);
       conf_pub_->publish(cmsg);
     }
 
     // Agnostic goal (G0)
-    if (agnostic_goal_pub_ && !goals_.empty())
+    if (agnostic_goal_pub_ && !active_goals_.size() <= 1)
     {
       geometry_msgs::msg::PoseStamped g0;
       g0.header.stamp = now;
       g0.header.frame_id = "base";
-      g0.pose.position.x = goals_[0].x.x();
-      g0.pose.position.y = goals_[0].x.y();
-      g0.pose.position.z = goals_[0].x.z();
-      g0.pose.orientation.w = goals_[0].q.w();
-      g0.pose.orientation.x = goals_[0].q.x();
-      g0.pose.orientation.y = goals_[0].q.y();
-      g0.pose.orientation.z = goals_[0].q.z();
+      g0.pose.position.x = active_goals_["G0"].x.x();
+      g0.pose.position.y = active_goals_["G0"].x.y();
+      g0.pose.position.z = active_goals_["G0"].x.z();
+      g0.pose.orientation.w = active_goals_["G0"].q.w();
+      g0.pose.orientation.x = active_goals_["G0"].q.x();
+      g0.pose.orientation.y = active_goals_["G0"].q.y();
+      g0.pose.orientation.z = active_goals_["G0"].q.z();
       agnostic_goal_pub_->publish(g0);
     }
   }
 
-  // -----------------------------------------------------------------------------
-  // checkKnownGoalsAndBeep()
-  // -----------------------------------------------------------------------------
-  // Monitors whether the end-effector is within 6D reach of any known goal.
-  // A goal is considered reached when both distance ≤ ε_t and orientation error ≤ ε_r
-  // for at least dwell_ms milliseconds. When reached, a one-shot beep and goal index
-  // are published; otherwise, a zero flag is sent each cycle. Prevents repeated triggers
-  // using a dwell and latch mechanism.
-  // -----------------------------------------------------------------------------
   void SharedControlVelocityController::checkKnownGoalsAndBeep(const rclcpp::Time &now)
   {
     // Default: publish 0 (no reach) each cycle unless we actually fire a beep
     if (goal_reached_pub_)
     {
-      std_msgs::msg::Int32 flag;
-      flag.data = 0;
+      std_msgs::msg::String flag;
+      flag.data = "";
       goal_reached_pub_->publish(flag);
     }
 
     // Quick exit if no known goals configured
-    if (known_goals_poses_param_.empty())
+    if (active_goals_.size() <= 1)
     {
       // reset state
-      last_reached_goal_idx_ = -1;
       beeped_for_this_visit_ = false;
       return;
     }
 
     /* -- Find the best candidate inside reach (min distance among those that pass thresholds) -- */
-    int best_goal_idx = -1;
+    std::string best_goal_id = "";
     double best_distance = std::numeric_limits<double>::infinity();
 
     // Strict 6D check: both translation and orientation must be within thresholds
-    for (size_t k = 0; k < known_goals_poses_param_.size(); ++k)
+    for (const auto &[id, goal] : active_goals_)
     {
-      const auto &goal = known_goals_poses_param_[k];
+      if (id == "G0")
+        continue; // skip agnostic goal
 
-      const Eigen::Vector3d goal_position(goal[0], goal[1], goal[2]);
-      Eigen::Quaterniond goal_orientation(goal[6], goal[3], goal[4], goal[5]); // (w,x,y,z)
-      if (goal_orientation.norm() < 1e-9)
-        goal_orientation = Eigen::Quaterniond::Identity();
-      else
-        goal_orientation.normalize();
+      const double distance = (goal.x - current_position_).norm();
+      if (distance > eps_t_reach_)
+        continue;
 
-      const double distance = (goal_position - current_position_).norm();
-      const bool isTransOK = (distance <= eps_t_reach_);
+      const double orientation_error = computeRotationError(goal.q, current_orientation_).angle;
+      if (orientation_error > eps_r_reach_rad_)
+        continue;
 
-      const double orientation_error =
-          computeRotationError(goal_orientation, current_orientation_).angle;
-      const bool isRotOK = (orientation_error <= eps_r_reach_rad_);
-
-      if (isTransOK && isRotOK)
+      if (distance < best_distance)
       {
-        if (distance < best_distance)
-        {
-          best_distance = distance;
-          best_goal_idx = static_cast<int>(k);
-        }
+        best_distance = distance;
+        best_goal_id = id;
       }
     }
 
-    /* -- Dwell state machine -- */
-    if (best_goal_idx >= 0)
+    if (best_goal_id != "")
     {
-      // Starting a new candidate?
-      if (last_reached_goal_idx_ != best_goal_idx)
+      // Check if we just entered this goal's radius
+      if (last_reached_goal_id_ != best_goal_id)
       {
-        last_reached_goal_idx_ = best_goal_idx;
+        last_reached_goal_id_ = best_goal_id;
         reached_enter_time_ = now;
         beeped_for_this_visit_ = false;
       }
 
-      // Already dwelling on this candidate: check elapsed time
+      // Check if we have dwelled long enough
       if (!beeped_for_this_visit_)
       {
-        const double elapsed_ms = (now - reached_enter_time_).nanoseconds() / 1'000'000.0;
+        const double elapsed_ms = (now - reached_enter_time_).nanoseconds() / 1e6;
         if (elapsed_ms >= static_cast<double>(dwell_ms_))
         {
-          // Fire one-shot beep + pulse flag
-          if (beep_pub_)
-          {
-            std_msgs::msg::Bool isGoalReached;
-            isGoalReached.data = true;
-            beep_pub_->publish(
-                isGoalReached); // topic: /feedback/beep_trigger --> python node listens to this
-                                // node and launches the sound feedback
-          }
-          if (goal_reached_pub_)
-          {
-            std_msgs::msg::Int32 goal_index;
-            goal_index.data = best_goal_idx + 1; // publish the index of the goal that was reached
-            goal_reached_pub_->publish(goal_index);
-          }
-
-          // Log in console with optional label
-          const bool has_label = (best_goal_idx < static_cast<int>(known_goals_labels_.size()) &&
-                                  !known_goals_labels_[best_goal_idx].empty());
-          const char *label = has_label ? known_goals_labels_[best_goal_idx].c_str() : nullptr;
-
-          if (label)
-          {
-            RCLCPP_INFO(get_node()->get_logger(), "[REACHED] KG%u '%s' — dist=%.3f m, dwell=%d ms",
-                        best_goal_idx + 1, label, best_distance, dwell_ms_);
-          }
-          else
-          {
-            RCLCPP_INFO(get_node()->get_logger(), "[REACHED] KG%u — dist=%.3f m, dwell=%d ms",
-                        best_goal_idx + 1, best_distance, dwell_ms_);
-          }
-
-          beeped_for_this_visit_ = true; // latch while we remain inside
+          trigger_reach_feedback(best_goal_id, best_distance);
+          beeped_for_this_visit_ = true;
         }
       }
     }
     else
     {
-      // no candidate inside reach: reset dwell/latch
-      last_reached_goal_idx_ = -1;
+      // Out of range of all goals
+      last_reached_goal_id_ = "";
       beeped_for_this_visit_ = false;
     }
+  }
+
+  void SharedControlVelocityController::trigger_reach_feedback(const std::string &id,
+                                                               double distance)
+  {
+    if (beep_pub_)
+    {
+      std_msgs::msg::Bool msg;
+      msg.data = true;
+      beep_pub_->publish(msg);
+    }
+
+    if (goal_reached_pub_)
+    {
+      std_msgs::msg::String msg;
+      msg.data = id;
+      goal_reached_pub_->publish(msg);
+    }
+
+    RCLCPP_INFO(get_node()->get_logger(), "[REACHED] ID %d (%s) - Dist: %.3f m", id, id.c_str(),
+                distance);
   }
 
 } // namespace cartesian_velocity_controller
