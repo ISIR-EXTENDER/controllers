@@ -11,7 +11,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-#include "joystick_interface/msg/teleop_cmd.hpp"
+#include "extender_msgs/msg/teleop_command.hpp"
 #include "robot_interfaces/generic_component.hpp"
 #include "robot_interfaces/robot_interfaces_algos.hpp"
 
@@ -43,25 +43,25 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
-    // Teleoperation Mode (aligned with joystick_interface/TeleopCmd constants)
-    enum class TeleopMode
-    {
-      Translation_Rotation,
-      Rotation,
-      Translation,
-      Both
-    };
-
-    TeleopMode mode_{TeleopMode::Translation_Rotation};
-
-    /// Map TeleopCmd.mode (uint8) to internal TeleopMode enum
-    TeleopMode fromMsgMode(uint8_t mode) const;
-
     /// Callback to receive Twist commands from the teleop node
-    void twistCallback(const joystick_interface::msg::TeleopCmd::SharedPtr msg);
+    void twistCallback(const extender_msgs::msg::TeleopCommand::SharedPtr msg);
+
+    Eigen::Vector3d computeBaselineAngularVelocity(
+        const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const;
+    // Helper: apply first-order low-pass filter to a 3D vector
+    Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
+                                             const Eigen::Vector3d &previous, double alpha) const;
+
+    // Helper: apply simple per-axis rate limiting (saturation) to linear and angular velocities
+    std::pair<Eigen::Vector3d, Eigen::Vector3d> applyVelocitySaturation(
+        const Eigen::Vector3d &current_linear, const Eigen::Vector3d &previous_linear,
+        double max_linear_delta, const Eigen::Vector3d &current_angular,
+        const Eigen::Vector3d &previous_angular, double max_angular_delta) const;
 
     /// Generic component to interface with robot hardware
     std::unique_ptr<robot_interfaces::GenericComponent> robot_vel_interface_;
+
+    uint8_t mode_{extender_msgs::msg::TeleopCommand::TRANSLATION_ROTATION};
 
     /// Stores the latest Twist command received (raw from teleop)
     geometry_msgs::msg::Twist latest_twist_;
@@ -71,7 +71,7 @@ namespace cartesian_velocity_controller
     Eigen::Vector3d filtered_angular_;
 
     /// Subscription for teleop Twist commands
-    rclcpp::Subscription<joystick_interface::msg::TeleopCmd>::SharedPtr twist_sub_;
+    rclcpp::Subscription<extender_msgs::msg::TeleopCommand>::SharedPtr twist_sub_;
 
     // Robot state
     Eigen::Quaterniond current_orientation_;
@@ -88,16 +88,6 @@ namespace cartesian_velocity_controller
     /// Cartesian velocity saturation parameters
     double max_linear_delta_;
     double max_angular_delta_;
-
-    // Helper: apply first-order low-pass filter to a 3D vector
-    Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
-                                             const Eigen::Vector3d &previous, double alpha) const;
-
-    // Helper: apply simple per-axis rate limiting (saturation) to linear and angular velocities
-    std::pair<Eigen::Vector3d, Eigen::Vector3d> applyVelocitySaturation(
-        const Eigen::Vector3d &current_linear, const Eigen::Vector3d &previous_linear,
-        double max_linear_delta, const Eigen::Vector3d &current_angular,
-        const Eigen::Vector3d &previous_angular, double max_angular_delta) const;
 
     // Frame for interpreting incoming twist commands: "base" or "ee"
     std::string input_twist_frame_{"base"};

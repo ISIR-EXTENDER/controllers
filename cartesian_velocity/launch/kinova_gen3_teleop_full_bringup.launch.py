@@ -90,7 +90,7 @@ def generate_launch_description():
         [
             FindPackageShare("cartesian_velocity"),
             "config",
-            "kinova_cartesian_teleop_controllers.yaml",
+            "kinova_params.yaml",
         ]
     )
 
