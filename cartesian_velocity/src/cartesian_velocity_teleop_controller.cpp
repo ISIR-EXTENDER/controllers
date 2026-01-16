@@ -4,12 +4,6 @@
 
 namespace cartesian_velocity_controller
 {
-  // Helper function to clamp a value within a range
-  inline double clamp_value(double value, double min_val, double max_val)
-  {
-    return std::clamp(value, min_val, max_val);
-  }
-
   using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
   CartesianVelocityTeleopController::CartesianVelocityTeleopController()
@@ -17,13 +11,6 @@ namespace cartesian_velocity_controller
         filtered_angular_(Eigen::Vector3d::Zero()),
         current_orientation_(Eigen::Quaterniond::Identity())
   {
-    // Initialize twist command to zero
-    latest_twist_.linear.x = 0.0;
-    latest_twist_.linear.y = 0.0;
-    latest_twist_.linear.z = 0.0;
-    latest_twist_.angular.x = 0.0;
-    latest_twist_.angular.y = 0.0;
-    latest_twist_.angular.z = 0.0;
   }
 
   CartesianVelocityTeleopController::~CartesianVelocityTeleopController() = default;
@@ -53,7 +40,7 @@ namespace cartesian_velocity_controller
   CallbackReturn CartesianVelocityTeleopController::on_init()
   {
     // Create a subscription to the "cmd_vel" topic to receive teleoperation commands
-    twist_sub_ = get_node()->create_subscription<joystick_interface::msg::TeleopCmd>(
+    twist_sub_ = get_node()->create_subscription<extender_msgs::msg::TeleopCommand>(
         "/teleop_cmd", 10,
         std::bind(&CartesianVelocityTeleopController::twistCallback, this, std::placeholders::_1));
 
@@ -63,81 +50,77 @@ namespace cartesian_velocity_controller
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
   CartesianVelocityTeleopController::on_configure(const rclcpp_lifecycle::State &)
   {
+    auto node = get_node();
     // Check and declare parameters only if not already declared
-    if (!get_node()->has_parameter("gain"))
+    if (!node->has_parameter("gain"))
     {
-      get_node()->declare_parameter("gain", 1.0);
+      node->declare_parameter("gain", 1.0);
     }
-    if (!get_node()->has_parameter("initial_filter_cutoff_frequency"))
+    if (!node->has_parameter("initial_filter_cutoff_frequency"))
     {
       // Same name/semantics as in SharedControlVelocityController
-      get_node()->declare_parameter("initial_filter_cutoff_frequency", 0.8);
+      node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
     }
-    if (!get_node()->has_parameter("max_linear_delta"))
+    if (!node->has_parameter("max_linear_delta"))
     {
-      get_node()->declare_parameter("max_linear_delta", 0.007);
+      node->declare_parameter("max_linear_delta", 0.007);
     }
-    if (!get_node()->has_parameter("max_angular_delta"))
+    if (!node->has_parameter("max_angular_delta"))
     {
-      get_node()->declare_parameter("max_angular_delta", 0.014);
-    }
-    if (!get_node()->has_parameter("base_frame"))
-    {
-      get_node()->declare_parameter("base_frame", "base_link");
-    }
-    if (!get_node()->has_parameter("tool_frame"))
-    {
-      get_node()->declare_parameter("tool_frame", "tool_frame");
-    }
-    if (!get_node()->has_parameter("input_twist_frame"))
-    {
-      get_node()->declare_parameter("input_twist_frame", "base");
+      node->declare_parameter("max_angular_delta", 0.014);
     }
 
     // Read controller and filter parameters from server
-    gain_ = get_node()->get_parameter("gain").as_double();
+    gain_ = node->get_parameter("gain").as_double();
     initial_filter_cutoff_frequency_ =
-        get_node()->get_parameter("initial_filter_cutoff_frequency").as_double();
-    max_linear_delta_ = get_node()->get_parameter("max_linear_delta").as_double();
-    max_angular_delta_ = get_node()->get_parameter("max_angular_delta").as_double();
-    input_twist_frame_ = get_node()->get_parameter("input_twist_frame").as_string();
+        node->get_parameter("initial_filter_cutoff_frequency").as_double();
+    max_linear_delta_ = node->get_parameter("max_linear_delta").as_double();
+    max_angular_delta_ = node->get_parameter("max_angular_delta").as_double();
+    input_twist_frame_ = node->get_parameter("input_twist_frame").as_string();
     // Sanitize
     std::transform(input_twist_frame_.begin(), input_twist_frame_.end(), input_twist_frame_.begin(),
                    ::tolower);
     if (input_twist_frame_ != "base" && input_twist_frame_ != "ee")
     {
-      RCLCPP_WARN(get_node()->get_logger(),
+      RCLCPP_WARN(node->get_logger(),
                   "Invalid input_twist_frame '%s'. Use 'base' or 'ee'. Defaulting to 'base'.",
                   input_twist_frame_.c_str());
       input_twist_frame_ = "base";
     }
 
     // Logging
-    RCLCPP_INFO(get_node()->get_logger(), "Cartesian Velocity Teleop Controller: ");
-    RCLCPP_INFO(get_node()->get_logger(), "  gain: %.4f", gain_);
-    RCLCPP_INFO(get_node()->get_logger(), "  initial_filter_cutoff_frequency: %.4f Hz",
+    RCLCPP_INFO(node->get_logger(), "Cartesian Velocity Teleop Controller: ");
+    RCLCPP_INFO(node->get_logger(), "  gain: %.4f", gain_);
+    RCLCPP_INFO(node->get_logger(), "  initial_filter_cutoff_frequency: %.4f Hz",
                 initial_filter_cutoff_frequency_);
-    RCLCPP_INFO(get_node()->get_logger(), "  max_linear_delta: %.4f", max_linear_delta_);
-    RCLCPP_INFO(get_node()->get_logger(), "  max_angular_delta: %.4f", max_angular_delta_);
-    RCLCPP_INFO(get_node()->get_logger(), "  input_twist_frame: %s", input_twist_frame_.c_str());
+    RCLCPP_INFO(node->get_logger(), "  max_linear_delta: %.4f", max_linear_delta_);
+    RCLCPP_INFO(node->get_logger(), "  max_angular_delta: %.4f", max_angular_delta_);
+    RCLCPP_INFO(node->get_logger(), "  input_twist_frame: %s", input_twist_frame_.c_str());
 
-    std::string robot_type = get_node()->get_parameter("robot_type").as_string();
+    // Create robot interface
+    std::string robot_type = node->get_parameter("robot_type").as_string();
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
     if (!robot_vel_interface_)
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "Failed to create robot interface for type '%s'",
+      RCLCPP_ERROR(node->get_logger(), "Failed to create robot interface for type '%s'",
                    robot_type.c_str());
       return CallbackReturn::ERROR;
     }
 
-    // Pass controller's node interfaces to robot interface for topic subscriptions
-    // Robot interface will subscribe to /robot_description and /joint_states topics
-    robot_vel_interface_->setNodeInterfaces(get_node());
-
-    // Pass frame names for KDL chain extraction
-    std::string base_frame = get_node()->get_parameter("base_frame").as_string();
-    std::string tool_frame = get_node()->get_parameter("tool_frame").as_string();
-    robot_vel_interface_->setFrameNames(base_frame, tool_frame);
+    std::string robot_description;
+    if (!node->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to find 'robot_description' parameter.");
+      return controller_interface::CallbackReturn::ERROR;
+    }
+    // init kinematics of the robot interface
+    if (!robot_vel_interface_->initKinematics(robot_description,
+                                              node->get_parameter("base_frame").as_string(),
+                                              node->get_parameter("tool_frame").as_string()))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to initialize kinematics.");
+      return CallbackReturn::ERROR;
+    }
 
     // Reset LPF state
     filtered_linear_.setZero();
@@ -160,15 +143,21 @@ namespace cartesian_velocity_controller
       const rclcpp_lifecycle::State & /*previous_state*/)
   {
     robot_vel_interface_->release_all_interfaces();
+    // Reset LPF state
+    filtered_linear_.setZero();
+    filtered_angular_.setZero();
+    lpf_initialized_ = false;
     return CallbackReturn::SUCCESS;
   }
 
   controller_interface::return_type CartesianVelocityTeleopController::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
+    typedef extender_msgs::msg::TeleopCommand Mode;
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =
         robot_vel_interface_->getCurrentEndEffectorPose();
+
     current_orientation_ = temp_pose.quaternion;
 
     // Convert the latest teleop Twist into raw Eigen vectors (no mode gating yet)
@@ -220,16 +209,18 @@ namespace cartesian_velocity_controller
 
     switch (mode_)
     {
-    case TeleopMode::Translation:
+    case Mode::TRANSLATION:
       // Only translation: ignore angular component
       cartesian_angular_velocity.setZero();
       break;
-    case TeleopMode::Rotation:
+    case Mode::ROTATION:
       // Only rotation: ignore linear component
       cartesian_linear_velocity.setZero();
       break;
-    case TeleopMode::Both:
-    case TeleopMode::Translation_Rotation:
+    case Mode::TRANSLATION_ROTATION:
+      cartesian_angular_velocity =
+          computeBaselineAngularVelocity(temp_pose.translation, cartesian_linear_velocity);
+      break;
     default:
       // Use both linear and angular components
       break;
@@ -273,9 +264,9 @@ namespace cartesian_velocity_controller
     for (int i = 0; i < 3; ++i)
     {
       const double delta_linear =
-          clamp_value(current_linear[i] - previous_linear[i], -max_linear_delta, max_linear_delta);
-      const double delta_angular = clamp_value(current_angular[i] - previous_angular[i],
-                                               -max_angular_delta, max_angular_delta);
+          std::clamp(current_linear[i] - previous_linear[i], -max_linear_delta, max_linear_delta);
+      const double delta_angular = std::clamp(current_angular[i] - previous_angular[i],
+                                              -max_angular_delta, max_angular_delta);
 
       saturated_linear[i] += delta_linear;
       saturated_angular[i] += delta_angular;
@@ -284,34 +275,30 @@ namespace cartesian_velocity_controller
     return {saturated_linear, saturated_angular};
   }
 
-  CartesianVelocityTeleopController::TeleopMode CartesianVelocityTeleopController::fromMsgMode(
-      uint8_t mode) const
+  Eigen::Vector3d CartesianVelocityTeleopController::computeBaselineAngularVelocity(
+      const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const
   {
-    switch (mode)
+    const double x_E = current_position.x();
+    const double y_E = current_position.y();
+    const double v_x = linear_velocity.x();
+    const double v_y = linear_velocity.y();
+    const double denom = x_E * x_E + y_E * y_E;
+
+    double omega_z_baseline = 0.0;
+    if (denom > 0.0)
     {
-    case joystick_interface::msg::TeleopCmd::TRANSLATION_ROTATION:
-      return TeleopMode::Translation_Rotation;
-    case joystick_interface::msg::TeleopCmd::ROTATION:
-      return TeleopMode::Rotation;
-    case joystick_interface::msg::TeleopCmd::TRANSLATION:
-      return TeleopMode::Translation;
-    case joystick_interface::msg::TeleopCmd::BOTH:
-      return TeleopMode::Both;
-    default:
-      RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 2000,
-                           "Unknown TeleopCmd mode %u, defaulting to TRANSLATION_ROTATION", mode);
-      return TeleopMode::Translation_Rotation;
+      omega_z_baseline = (x_E * v_y - y_E * v_x) / denom;
     }
+
+    return Eigen::Vector3d(0.0, 0.0, omega_z_baseline); // ω_{E,u,T}
   }
 
   void CartesianVelocityTeleopController::twistCallback(
-      const joystick_interface::msg::TeleopCmd::SharedPtr msg)
+      const extender_msgs::msg::TeleopCommand::SharedPtr msg)
   {
     // Update the stored Twist command with the latest message
     latest_twist_ = msg->twist;
-
-    // Map TeleopCmd.mode to internal TeleopMode
-    mode_ = fromMsgMode(msg->mode);
+    mode_ = msg->mode;
   }
 
 } // namespace cartesian_velocity_controller

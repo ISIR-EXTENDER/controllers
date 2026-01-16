@@ -1,0 +1,10 @@
+cartesian_velocity_teleop_controller:
+  ros__parameters:
+    gain: 1.0
+    alpha: 0.005
+    max_linear_delta: 0.007
+    max_angular_delta: 0.014
+    robot_type: "franka_velocity"
+    input_twist_frame: "ee"   # "base" or "ee"
+    base_frame: "base"
+    tool_frame: "fr3_hand"
