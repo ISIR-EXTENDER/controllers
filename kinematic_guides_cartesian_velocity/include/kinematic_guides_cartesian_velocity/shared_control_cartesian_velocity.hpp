@@ -583,6 +583,8 @@ namespace cartesian_velocity_controller
     // Input twist frame selection: "base" or "ee"
     std::string input_twist_frame_; ///< Frame for input twist commands ("base" or "ee").
 
+    std::vector<std::string> command_names_; ///< Names of the command interfaces.
+
     // Plotting publishers
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr latest_twist_pub_; ///< Publisher for latest twist command.
     rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr initial_filtered_linear_velocity_pub_;  ///< Publisher for initial filtered linear velocity.
