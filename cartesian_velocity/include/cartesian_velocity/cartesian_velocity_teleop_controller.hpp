@@ -43,11 +43,37 @@ namespace cartesian_velocity_controller
         const rclcpp_lifecycle::State &previous_state) override;
 
   private:
+    /**
+     * @brief Template function to declare and get parameters with default values.
+     * @tparam T Type of the parameter.
+     * @param name Parameter name.
+     * @param variable Reference to store the parameter value.
+     * @param default_value Default value if parameter is not set.
+     */
+    template <typename T>
+    void declare_and_get_parameters(const std::string &name, T &variable, const T &default_value)
+    {
+      auto node = get_node();
+      if (!node->has_parameter(name))
+      {
+        node->declare_parameter(name, default_value);
+      }
+      variable = node->get_parameter(name).get_value<T>();
+    }
+
+    void loadParameters();
+
+    void declareSubscribers();
+
+    void declarePublishers();
+
+    bool setupRobotInterface();
+
     /// Callback to receive Twist commands from the teleop node
     void twistCallback(const extender_msgs::msg::TeleopCommand::SharedPtr msg);
 
-    Eigen::Vector3d computeBaselineAngularVelocity(
-        const Eigen::Vector3d &current_position, const Eigen::Vector3d &linear_velocity) const;
+    Eigen::Vector3d computeBaselineAngularVelocity(const Eigen::Vector3d &current_position,
+                                                   const Eigen::Vector3d &linear_velocity) const;
     // Helper: apply first-order low-pass filter to a 3D vector
     Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
                                              const Eigen::Vector3d &previous, double alpha) const;
@@ -91,5 +117,8 @@ namespace cartesian_velocity_controller
 
     // Frame for interpreting incoming twist commands: "base" or "ee"
     std::string input_twist_frame_{"base"};
+
+    std::vector<std::string> command_names_;
+    std::string robot_type_{"franka_velocity"};
   };
 } // namespace cartesian_velocity_controller
