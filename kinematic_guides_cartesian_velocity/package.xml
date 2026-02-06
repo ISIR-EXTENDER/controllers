@@ -17,6 +17,7 @@
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>robot_interfaces</depend>
+  <depend>extender_msgs</depend>
   <depend>controller_manager</depend>
 
   <depend>joystick_interface</depend>

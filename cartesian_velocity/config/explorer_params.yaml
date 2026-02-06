@@ -1,3 +1,49 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 250  # Hz
+
+    qontrol_explorer:
+      type: qontrol_controller/QontrolVelocityController
+      auto_start: false
+      is_chainable: true
+
+    cartesian_velocity_teleop_controller:
+      type: cartesian_velocity/CartesianVelocityTeleopController
+      auto_start: false
+      
+
+qontrol_explorer:
+  ros__parameters:
+    # Base parameters
+    robot_description_origin: robot_state_publisher
+    tip_frame: ft_frame
+    root_frame: base_link
+    state_interface:
+      - position
+      - velocity
+      - effort
+    robot_command: position
+
+    # Velocity parameters
+    command_max_linear_velocity: 0.05
+    command_max_angular_velocity: 1.0
+    refresh_mapping: True
+    open_loop: True
+    input_topic_name: /explorer_user_interfaces/rqt_armcontrol/input_device_velocity
+    regularisation_weight: 1e-2
+    root_frame_control: True
+    deadzone: 0.1
+    velocity_limit: 0.5
+    horizon: 15
+    p_gain: 100.0
+    lambda: 0.1
+    points_collision: [0.0, -0.6, 0.0, 0.0, -0.6, 1.0]
+    wall_constraint_horizon: 15
+    d_secure: 0.2
+    d_prevent: 0.2
+    elbow_frame: "link_3"
+    handle_frame: "link_5"
+
 cartesian_velocity_teleop_controller:
   ros__parameters:
     gain: 1.0
@@ -8,3 +54,10 @@ cartesian_velocity_teleop_controller:
     input_twist_frame: "ee"   # "base" or "ee"
     base_frame: "base_link"
     tool_frame: "tool0"
+    command_names:
+      - "qontrol_explorer/linear_x"
+      - "qontrol_explorer/linear_y"
+      - "qontrol_explorer/linear_z"
+      - "qontrol_explorer/angular_x"
+      - "qontrol_explorer/angular_y"
+      - "qontrol_explorer/angular_z"

@@ -35,7 +35,6 @@ namespace cartesian_velocity_controller
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
     // Use command interface names provided by the robot interface
-    robot_vel_interface_->set_commands_names();
 
     config.names = robot_vel_interface_->get_commands_names();
     return config;
@@ -175,6 +174,7 @@ namespace cartesian_velocity_controller
     declare_and_get_parameters("robot_type", robot_type, std::string("kinova_velocity"));
     declare_and_get_parameters("base_frame", base_frame, std::string("base_link"));
     declare_and_get_parameters("tool_frame", tool_frame, std::string("end_effector_link"));
+    declare_and_get_parameters("command_names", command_names_, std::vector<std::string>{});
 
     if (!node->get_parameter("robot_description", robot_description))
     {
@@ -183,6 +183,8 @@ namespace cartesian_velocity_controller
     }
 
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
+    robot_vel_interface_->set_commands_names(command_names_);
+
     return robot_vel_interface_ &&
            robot_vel_interface_->initKinematics(robot_description, base_frame, tool_frame);
   }

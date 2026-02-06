@@ -1,12 +1,13 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction
+from launch.actions import DeclareLaunchArgument,IncludeLaunchDescription, RegisterEventHandler, TimerAction, ExecuteProcess
 from launch.event_handlers import OnProcessStart, OnProcessExit
 from launch.substitutions import Command, FindExecutable, PathJoinSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch_ros.parameter_descriptions import ParameterValue
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+
 
 
 def generate_launch_description():
@@ -15,6 +16,7 @@ def generate_launch_description():
     # --------------------------------------------------------------------------
     gui = LaunchConfiguration("gui")
     use_sim_time = LaunchConfiguration('use_sim_time')
+    use_simulation = LaunchConfiguration("use_simulation")
     spacenav = LaunchConfiguration('spacenav')
     use_actuator_interface = LaunchConfiguration("use_actuator_interface")
     can_port = LaunchConfiguration("can_port")
@@ -39,7 +41,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "can_port", 
-            default_value="vxcan1", 
+            default_value="can0", 
             description="CAN Port for VESC Communication"
         ),
         DeclareLaunchArgument(
@@ -62,81 +64,61 @@ def generate_launch_description():
     # --------------------------------------------------------------------------
     # 2. File Paths & Substitutions
     # --------------------------------------------------------------------------
-    pkg_share = FindPackageShare("ros2_control_explorer")
+    pkg_share = FindPackageShare("explorer_description")
     
     robot_description_content = Command([
         PathJoinSubstitution([FindExecutable(name="xacro")]), " ",
-        PathJoinSubstitution([pkg_share, "description/urdf", "explorer.urdf.xacro"]), " ",
-        "use_ignition:=false ",
+        PathJoinSubstitution([pkg_share, "urdf", "explorer.urdf.xacro"]), " ",
+        "use_ignition:=", use_simulation,
         "use_actuator_interface:=", use_actuator_interface,
         " can_port:=", can_port,
         " host_id:=", host_id,
         " use_POC2:=", use_poc2,
     ])
     robot_description = {"robot_description": robot_description_content}
-    # Config Files
-    robot_controllers = PathJoinSubstitution([pkg_share, "config", "explorer_controller.yaml"])
-    rviz_config_file = PathJoinSubstitution([pkg_share, "description/rviz", "view_robot.rviz"])
-    spacenav_config = PathJoinSubstitution([pkg_share, "config", "spacenav_settings.yaml"])
-   
+    # Config Files   
     velocity_config = PathJoinSubstitution([
         FindPackageShare("cartesian_velocity"), "config", "explorer_params.yaml"
     ])
-    # --------------------------------------------------------------------------
-    # 3. Standalone ros2_control Node (Replaces Gazebo)
-    # --------------------------------------------------------------------------
-    # This node runs the hardware interfaces and the controller manager
-    node_robot_state_publisher = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="log",
-        parameters=[robot_description, {'use_sim_time': use_sim_time}],
+
+    robot_simulation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([FindPackageShare("explorer_bringup"), "/launch/simulation_base.launch.py"]),
+        launch_arguments={
+            'use_POC2': use_poc2,
+            'gui': gui,
+            'use_sim_time': use_sim_time,
+            'rviz_delay': '0.0',
+            'extra_controllers_config': velocity_config
+        }.items(),
+        condition=IfCondition(use_simulation)
     )
 
-    control_node = Node(
-        package="controller_manager",
-        executable="ros2_control_node",
-        parameters=[robot_controllers, robot_description],
-        output="both",
-        remappings=[("~/robot_description", "/robot_description")],
+    robot_hardware = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([FindPackageShare("explorer_bringup"), "/launch/hardware_base.launch.py"]),
+        launch_arguments={
+            'gui': gui,
+            'use_sim_time': use_sim_time,
+            'use_actuator_interface': 'True',
+            'can_port': can_port,
+            'host_id': host_id,
+            'use_POC2': use_poc2,
+            'rviz_delay': '5.0', 
+            'extra_controllers_config': velocity_config
+        }.items(),
+        condition=UnlessCondition(use_simulation) 
     )
 
-    delayed_control_node = TimerAction(
-        period=1.0, 
-        actions=[control_node]
+    spawner_qontrol = Node(
+        package="controller_manager", 
+        executable="spawner",
+        arguments=["qontrol_explorer", "--controller-manager", "/controller_manager"],
     )
 
-    joint_state_broadcaster_spawner = Node(
+    spawner_teleop_controller = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
-        output="log",
-    )
-    joint_pos_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "cartesian_velocity_teleop_controller",
-            "-t", "cartesian_velocity/CartesianVelocityTeleopController",
-            "--param-file", velocity_config
-
-        ],
+        arguments=["cartesian_velocity_teleop_controller", "--controller-manager", "/controller_manager"],
         output="screen",
-    )
-
-    gui_control_node = Node(
-        package='rqt_armcontrol',
-        executable='rqt_armcontrol',
-    )
-
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        output="log",
-        arguments=["-d", rviz_config_file],
-        condition=IfCondition(gui),
-        parameters=[{'use_sim_time': use_sim_time}]
     )
 
     # --- Teleoperation Node ---
@@ -152,29 +134,23 @@ def generate_launch_description():
         parameters=[teleop_config_file],
     )
 
+    joy_node = Node(
+        package='joy',
+        executable='joy_node',
+        name='joy_node'
+    )
+
     # --------------------------------------------------------------------------
     # 4. Event Handlers
     # --------------------------------------------------------------------------
-    spawners_group = RegisterEventHandler(
-        event_handler=OnProcessStart(
-            target_action=control_node,
-            on_start=[joint_state_broadcaster_spawner]
-        )
-    )
-
-
-    delayed_robot_controller = RegisterEventHandler(
+    # delayed_spawner_qontrol = TimerAction(
+    #     period=10.0,
+    #     actions=[spawner_qontrol]
+    # )
+    start_cartesian_teleop_event = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=joint_state_broadcaster_spawner,
-            on_exit=[joint_pos_controller_spawner]
-        )
-    )
-
-
-    rviz_start_event = RegisterEventHandler(
-        event_handler=OnProcessStart(
-            target_action=node_robot_state_publisher,
-            on_start=[rviz_node]
+            target_action=spawner_qontrol,
+            on_exit=[spawner_teleop_controller]
         )
     )
 
@@ -182,13 +158,12 @@ def generate_launch_description():
     # 5. Launch Description
     # --------------------------------------------------------------------------
     nodes_to_start = [
-        node_robot_state_publisher,
-        delayed_control_node,
-        gui_control_node,
-        spawners_group,
-        delayed_robot_controller,
-        rviz_start_event, 
-        teleop_node
+        robot_simulation,
+        robot_hardware,
+        teleop_node,
+        spawner_qontrol,
+        start_cartesian_teleop_event,
+        joy_node
     ]
 
     return LaunchDescription(declared_arguments + nodes_to_start)

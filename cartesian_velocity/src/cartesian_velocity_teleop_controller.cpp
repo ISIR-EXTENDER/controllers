@@ -20,8 +20,7 @@ namespace cartesian_velocity_controller
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    robot_vel_interface_->set_commands_names();
-
+    
     config.names = robot_vel_interface_->get_commands_names();
     return config;
   }
@@ -31,7 +30,6 @@ namespace cartesian_velocity_controller
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    robot_vel_interface_->set_states_names();
 
     config.names = robot_vel_interface_->get_states_names();
     return config;
@@ -47,36 +45,62 @@ namespace cartesian_velocity_controller
     return CallbackReturn::SUCCESS;
   }
 
+  void CartesianVelocityTeleopController::loadParameters()
+  {
+    declare_and_get_parameters("gain", gain_, 1.0);
+    declare_and_get_parameters("initial_filter_cutoff_frequency", initial_filter_cutoff_frequency_,
+                               0.8);
+    declare_and_get_parameters("max_linear_delta", max_linear_delta_, 0.007);
+    declare_and_get_parameters("max_angular_delta", max_angular_delta_, 0.014);
+    declare_and_get_parameters("input_twist_frame", input_twist_frame_, std::string("base"));
+    declare_and_get_parameters("robot_type", robot_type_, std::string("franka_velocity"));
+    declare_and_get_parameters("command_names", command_names_, std::vector<std::string>{});
+  }
+
+  void CartesianVelocityTeleopController::declareSubscribers()
+  {
+    twist_sub_ = get_node()->create_subscription<extender_msgs::msg::TeleopCommand>(
+        "/teleop_cmd", 10,
+        std::bind(&CartesianVelocityTeleopController::twistCallback, this, std::placeholders::_1));
+  }
+
+  void CartesianVelocityTeleopController::declarePublishers()
+  {
+    // No publishers for now
+  }
+
+  bool CartesianVelocityTeleopController::setupRobotInterface()
+  {
+    auto node = get_node();
+    std::string robot_description;
+
+    if (!node->get_parameter("robot_description", robot_description))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Missing robot_description");
+      return false;
+    }
+
+    robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type_);
+    if (!robot_vel_interface_ ||
+        !robot_vel_interface_->initKinematics(robot_description,
+                                              node->get_parameter("base_frame").as_string(),
+                                              node->get_parameter("tool_frame").as_string()))
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to initialize robot interface.");
+      return false;
+    }
+    robot_vel_interface_->set_commands_names(command_names_);
+
+    return true;
+  }
+
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
   CartesianVelocityTeleopController::on_configure(const rclcpp_lifecycle::State &)
   {
     auto node = get_node();
-    // Check and declare parameters only if not already declared
-    if (!node->has_parameter("gain"))
-    {
-      node->declare_parameter("gain", 1.0);
-    }
-    if (!node->has_parameter("initial_filter_cutoff_frequency"))
-    {
-      // Same name/semantics as in SharedControlVelocityController
-      node->declare_parameter("initial_filter_cutoff_frequency", 0.8);
-    }
-    if (!node->has_parameter("max_linear_delta"))
-    {
-      node->declare_parameter("max_linear_delta", 0.007);
-    }
-    if (!node->has_parameter("max_angular_delta"))
-    {
-      node->declare_parameter("max_angular_delta", 0.014);
-    }
 
-    // Read controller and filter parameters from server
-    gain_ = node->get_parameter("gain").as_double();
-    initial_filter_cutoff_frequency_ =
-        node->get_parameter("initial_filter_cutoff_frequency").as_double();
-    max_linear_delta_ = node->get_parameter("max_linear_delta").as_double();
-    max_angular_delta_ = node->get_parameter("max_angular_delta").as_double();
-    input_twist_frame_ = node->get_parameter("input_twist_frame").as_string();
+    loadParameters();
+
     // Sanitize
     std::transform(input_twist_frame_.begin(), input_twist_frame_.end(), input_twist_frame_.begin(),
                    ::tolower);
@@ -98,27 +122,8 @@ namespace cartesian_velocity_controller
     RCLCPP_INFO(node->get_logger(), "  input_twist_frame: %s", input_twist_frame_.c_str());
 
     // Create robot interface
-    std::string robot_type = node->get_parameter("robot_type").as_string();
-    robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type);
-    if (!robot_vel_interface_)
+    if (!setupRobotInterface())
     {
-      RCLCPP_ERROR(node->get_logger(), "Failed to create robot interface for type '%s'",
-                   robot_type.c_str());
-      return CallbackReturn::ERROR;
-    }
-
-    std::string robot_description;
-    if (!node->get_parameter("robot_description", robot_description))
-    {
-      RCLCPP_ERROR(node->get_logger(), "Failed to find 'robot_description' parameter.");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    // init kinematics of the robot interface
-    if (!robot_vel_interface_->initKinematics(robot_description,
-                                              node->get_parameter("base_frame").as_string(),
-                                              node->get_parameter("tool_frame").as_string()))
-    {
-      RCLCPP_ERROR(node->get_logger(), "Failed to initialize kinematics.");
       return CallbackReturn::ERROR;
     }
 

@@ -9,7 +9,12 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>joystick_interface</depend>
+  <depend>rclcpp</depend>
+  <depend>controller_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>geometry_msgs</depend>
+  <depend>robot_interfaces</depend>
+  <depend>extender_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
