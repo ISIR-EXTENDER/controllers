@@ -22,6 +22,7 @@ def generate_launch_description():
     can_port = LaunchConfiguration("can_port")
     host_id = LaunchConfiguration("host_id")
     use_poc2 = LaunchConfiguration("use_POC2")
+    use_joystick_interface = LaunchConfiguration("use_joystick_interface")
 
     declared_arguments = [
         DeclareLaunchArgument(
@@ -58,6 +59,11 @@ def generate_launch_description():
             'spacenav', 
             default_value='True', 
             description='If the spacenav 3D mouse is used'
+        ),
+        DeclareLaunchArgument(
+            "use_joystick_interface",
+            default_value="false",
+            description="Start joystick_interface node (disable when using tablette UI)."
         )
     ]
 
@@ -88,7 +94,8 @@ def generate_launch_description():
             'gui': gui,
             'use_sim_time': use_sim_time,
             'rviz_delay': '0.0',
-            'extra_controllers_config': velocity_config
+            'extra_controllers_config': velocity_config,
+            'use_custom_controllers': 'true'
         }.items(),
         condition=IfCondition(use_simulation)
     )
@@ -132,12 +139,14 @@ def generate_launch_description():
         name='joystick_input_node',
         output='screen',
         parameters=[teleop_config_file],
+        condition=IfCondition(use_joystick_interface),
     )
 
     joy_node = Node(
         package='joy',
         executable='joy_node',
-        name='joy_node'
+        name='joy_node',
+        condition=IfCondition(use_joystick_interface)
     )
 
     # --------------------------------------------------------------------------
