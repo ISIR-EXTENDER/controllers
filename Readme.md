@@ -11,6 +11,9 @@ A ROS2 controller that provides teleoperation control for robot manipulators in 
 
 **Use Cases**: Direct teleoperation, joystick control, velocity-based manipulation tasks.
 
+Mini update:
+- Cartesian teleop launch files now expose `use_joystick_interface` (default: `false`) to enable/disable joystick input nodes (`joystick_input_node` + `joy_node`) from launch arguments.
+
 ---
 
 ### Joint Position Interpolator
