@@ -58,6 +58,7 @@ def generate_launch_description():
     controllers_file = LaunchConfiguration("controllers_file")
     launch_rviz = LaunchConfiguration("launch_rviz")
     description_package = LaunchConfiguration("description_package")
+    use_joystick_interface = LaunchConfiguration("use_joystick_interface")
 
     # Resolve YAML path and load controllers with prefix substitution
     try:
@@ -194,6 +195,14 @@ def generate_launch_description():
         name="joystick_input",
         output="screen",
         parameters=[joystick_params_yaml],
+        condition=IfCondition(use_joystick_interface),
+    )
+
+    joy_node = Node(
+        package="joy",
+        executable="joy_node",
+        name="joy_node",
+        condition=IfCondition(use_joystick_interface),
     )
 
     # RViz
@@ -285,6 +294,11 @@ def generate_launch_description():
                 default_value="false",
                 description="Launch RViz?",
             ),
+            DeclareLaunchArgument(
+                "use_joystick_interface",
+                default_value="false",
+                description="Start joystick_interface node (disable when using tablette UI).",
+            ),
             robot_state_publisher_node,
             ros2_control_node,
             joint_state_broadcaster_spawner,
@@ -309,6 +323,7 @@ def generate_launch_description():
                 )
             ),
             joystick_node,
+            joy_node,
             rviz_node,
         ]
     )

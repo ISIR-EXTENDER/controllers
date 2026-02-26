@@ -39,6 +39,7 @@ cartesian_velocity_teleop_controller:
   ros__parameters:
     robot_type: "kinova_velocity"
     # Make robot_description available from controller_manager's namespace
+      # NOTE: robot_description is injected at launch time (see kinova_gen3_teleop_full_bringup.launch.py)
     robot_description: ""
     # Forward Kinematics Configuration (URDF-driven)
     # Frame names must match the robot URDF model
@@ -50,3 +51,11 @@ cartesian_velocity_teleop_controller:
     initial_filter_cutoff_frequency: 2.0
     max_linear_delta: 0.007
     max_angular_delta: 10.0
+    # Command interfaces for Kinova twist control
+    command_names:
+      - "tcp/twist.linear.x"
+      - "tcp/twist.linear.y"
+      - "tcp/twist.linear.z"
+      - "tcp/twist.angular.x"
+      - "tcp/twist.angular.y"
+      - "tcp/twist.angular.z"

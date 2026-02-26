@@ -49,6 +49,7 @@ The package includes launch files for different robot configurations:
 
 - `franka_cartesian_velocity_teleop.launch.py` - Launch with Franka robot
 - `kinova_gen3_teleop_full_bringup.launch.py` - Full bringup with Kinova Gen3
+- `full_gen3_teleop_bringup.launch.py` - Alternate full bringup for Kinova Gen3
 - `explorer_cartesian_velocity_teleop.launch.py` - Launch with Explorer robot
 
 ### Example Launch
@@ -58,6 +59,15 @@ For Explorer robots:
 ros2 launch cartesian_velocity explorer_cartesian_velocity_teleop.launch.py \
   can_port:='can0'
 ```
+
+### Input Interface Selection
+
+Teleop launch files expose:
+
+- `use_joystick_interface:=true|false` (default: `false`)
+
+When `true`, launch starts joystick input nodes (`joystick_input_node` and `joy_node`).
+When `false`, joystick nodes are not started, which is useful when commands come from another UI/source.
 
 ## Teleoperation
 

@@ -51,6 +51,7 @@ def launch_setup(context, *args, **kwargs):
     load_gripper = LaunchConfiguration('load_gripper')
     use_fake_hardware = LaunchConfiguration('use_fake_hardware')  # Set to false for real robot
     fake_sensor_commands = LaunchConfiguration('fake_sensor_commands')
+    use_joystick_interface = LaunchConfiguration('use_joystick_interface')
 
     # Generate the robot description from the xacro.
     robot_description = generate_robot_description(
@@ -123,6 +124,15 @@ def launch_setup(context, *args, **kwargs):
         name='joystick_input_node',
         output='screen',
         parameters=[teleop_config_file],
+        condition=IfCondition(use_joystick_interface),
+    ))
+
+    nodes.append(Node(
+        package='joy',
+        executable='joy_node',
+        name='joy_node',
+        output='screen',
+        condition=IfCondition(use_joystick_interface),
     ))
 
     # --- Gripper Node ---
@@ -136,6 +146,7 @@ def launch_setup(context, *args, **kwargs):
         executable='franka_gripper_node',
         name='franka_gripper_node',
         parameters=[gripper_config_file],
+        condition=IfCondition(use_joystick_interface),
     ))
 
 
@@ -184,6 +195,11 @@ def generate_launch_description():
             'load_gripper',
             default_value='true',
             description='Use Franka Gripper as an end-effector, otherwise, the robot is loaded without an end-effector.'
+        ),
+        DeclareLaunchArgument(
+            'use_joystick_interface',
+            default_value='false',
+            description='Start joystick_interface node (disable when using tablette UI).'
         ),
     ]
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])
