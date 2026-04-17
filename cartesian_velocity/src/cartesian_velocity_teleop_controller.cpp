@@ -83,7 +83,6 @@ namespace cartesian_velocity_controller
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type_);
     if (!robot_vel_interface_ ||
         !robot_vel_interface_->initKinematics(robot_description,
-                                              node->get_parameter("base_frame").as_string(),
                                               node->get_parameter("tool_frame").as_string()))
     {
       RCLCPP_ERROR(node->get_logger(), "Failed to initialize robot interface.");
@@ -158,6 +157,8 @@ namespace cartesian_velocity_controller
   controller_interface::return_type CartesianVelocityTeleopController::update(
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
+    robot_vel_interface_->syncState();
+    
     typedef extender_msgs::msg::TeleopCommand Mode;
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =

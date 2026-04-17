@@ -172,7 +172,6 @@ namespace cartesian_velocity_controller
     std::string robot_type, base_frame, tool_frame, robot_description;
 
     declare_and_get_parameters("robot_type", robot_type, std::string("kinova_velocity"));
-    declare_and_get_parameters("base_frame", base_frame, std::string("base_link"));
     declare_and_get_parameters("tool_frame", tool_frame, std::string("end_effector_link"));
     declare_and_get_parameters("command_names", command_names_, std::vector<std::string>{});
 
@@ -186,7 +185,7 @@ namespace cartesian_velocity_controller
     robot_vel_interface_->set_commands_names(command_names_);
 
     return robot_vel_interface_ &&
-           robot_vel_interface_->initKinematics(robot_description, base_frame, tool_frame);
+           robot_vel_interface_->initKinematics(robot_description, tool_frame);
   }
 
   rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
@@ -286,6 +285,9 @@ namespace cartesian_velocity_controller
   {
 
     typedef extender_msgs::msg::TeleopCommand Mode;
+
+    robot_vel_interface_->syncState();
+    
     /* -- Update state variables --*/
     // Get time
     const rclcpp::Time now = get_node()->now();
