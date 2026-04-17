@@ -14,8 +14,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include <urdf/model.h>
-
 namespace joint_controllers
 {
   /// @brief struct to hold useful informations to interpolate
@@ -57,11 +55,32 @@ namespace joint_controllers
     CallbackReturn on_deactivate(const rclcpp_lifecycle::State &previous_state) override;
 
   private:
-    /// @brief Generic component to interface with robot hardware
-    std::unique_ptr<robot_interfaces::GenericJointPosition> robot_interface_;
+    /**
+     * @brief Template function to declare and get parameters with default values.
+     * @tparam T Type of the parameter.
+     * @param name Parameter name.
+     * @param variable Reference to store the parameter value.
+     * @param default_value Default value if parameter is not set.
+     */
+    template <typename T>
+    void declare_and_get_parameters(const std::string &name, T &variable, const T &default_value)
+    {
+      auto node = get_node();
+      if (!node->has_parameter(name))
+      {
+        node->declare_parameter(name, default_value);
+      }
+      variable = node->get_parameter(name).get_value<T>();
+    }
 
-    /// @brief Subscriber to get the desired position
-    rclcpp::Subscription<JointPositionMessage>::SharedPtr desired_position_sub_;
+    void loadParameters();
+    void setupSubscribers();
+    void setupPublishers();
+    bool setupRobotInterface();
+
+    void activatePublishers();
+    void deactivatePublishers();
+
     /// @brief Callback of the subscriber. Will store the desired position in the unordered_map
     /// target_positions_
     /// @param msg message send on the topic /desired_joint_positions
@@ -70,23 +89,29 @@ namespace joint_controllers
     /// @brief Compute all joint trajectories based on current state and desired position
     void computeTrajectory();
 
+
+    /// @brief Generic component to interface with robot hardware
+    std::unique_ptr<robot_interfaces::GenericJointPosition> robot_interface_;
+
+    /// @brief Subscriber to get the desired position
+    rclcpp::Subscription<JointPositionMessage>::SharedPtr desired_position_sub_;
+
     /// @brief Interpolation velocity
     double max_interpolation_velocity_ = 0.01; // rad/s, default value
+    double elapsed_time_ = 0.0;
+    double trajectory_duration_ = 0.0;
+    bool trajectory_running_ = false;
 
     /// @brief target positions matched with the joint names
-    std::unordered_map<std::string, double> target_positions_;
+    std::unordered_map<std::string, double> target_positions_map_;
+    Eigen::VectorXd start_positions_;
+    Eigen::VectorXd target_positions_;
     /// @brief joint names of the robot
     std::vector<std::string> joint_names_;
-    /// @brief Limits of each joints, ordered the same as joint_names
-    std::vector<robot_interfaces::JointLimits> joint_limits_;
-    /// @brief Trajectory from start position to desired position
-    std::vector<JointCommand> joint_trajectory;
-    /// @brief check if trajectory is done or not. For now, as long as a goal is not reached no new
-    /// goal can be sent
-    bool done = true;
+    Eigen::VectorXd lowerLimits;
+    Eigen::VectorXd upperLimits;
+    Eigen::VectorXd velLimits;
 
-    bool start = false;
-    /// @brief current index in the trajectory
-    size_t current_index = 0;
+    
   };
 } // namespace joint_controllers
