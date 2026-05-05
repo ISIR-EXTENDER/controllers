@@ -1,199 +1,206 @@
-#!/usr/bin/env python3
-
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+    TimerAction,
+    ExecuteProcess,
+)
 from launch.event_handlers import OnProcessStart, OnProcessExit
-from launch.substitutions import Command, FindExecutable, PathJoinSubstitution, LaunchConfiguration
+from launch.substitutions import (
+    Command,
+    FindExecutable,
+    PathJoinSubstitution,
+    LaunchConfiguration,
+)
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch_ros.parameter_descriptions import ParameterValue
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
     # --------------------------------------------------------------------------
     # 1. Configuration & Arguments
     # --------------------------------------------------------------------------
+    gui = LaunchConfiguration("gui")
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    use_simulation = LaunchConfiguration("use_simulation")
+    spacenav = LaunchConfiguration("spacenav")
     use_actuator_interface = LaunchConfiguration("use_actuator_interface")
     can_port = LaunchConfiguration("can_port")
     host_id = LaunchConfiguration("host_id")
     use_poc2 = LaunchConfiguration("use_POC2")
-    launch_rviz = LaunchConfiguration("launch_rviz")
-
+    use_joystick_interface = LaunchConfiguration("use_joystick_interface")
 
     declared_arguments = [
         DeclareLaunchArgument(
-            "use_actuator_interface", 
-            default_value="true", 
-            description="Use VESCInterface to control the robot. Set to false for simulation"
+            "gui",
+            default_value="true",
+            description="Start RViz2 automatically with this launch file.",
         ),
         DeclareLaunchArgument(
-            "can_port", 
-            default_value="vxcan1", 
-            description="CAN Port for VESC Communication"
+            "use_sim_time",
+            default_value="false",
+            description="If true, use simulated clock",
         ),
         DeclareLaunchArgument(
-            "host_id", 
-            default_value="45", 
-            description="Host CAN ID for VESC Communication"
+            "use_actuator_interface",
+            default_value="true",
+            description="Use VESCInterface to control the robot. Set to false for simulation",
         ),
         DeclareLaunchArgument(
-            "use_POC2", 
-            default_value="true", 
-            description="Use POC2 urdf"
+            "can_port",
+            default_value="can0",
+            description="CAN Port for VESC Communication",
         ),
         DeclareLaunchArgument(
-                "launch_rviz",
-                default_value="false",
-                description="Launch RViz?"
-        )
+            "host_id",
+            default_value="45",
+            description="Host CAN ID for VESC Communication",
+        ),
+        DeclareLaunchArgument(
+            "use_POC2", default_value="true", description="Use POC2 urdf"
+        ),
+        DeclareLaunchArgument(
+            "spacenav",
+            default_value="True",
+            description="If the spacenav 3D mouse is used",
+        ),
+        DeclareLaunchArgument(
+            "use_joystick_interface",
+            default_value="false",
+            description="Start joystick_interface node (disable when using tablette UI).",
+        ),
     ]
 
     # --------------------------------------------------------------------------
     # 2. File Paths & Substitutions
     # --------------------------------------------------------------------------
-    pkg_share = FindPackageShare("ros2_control_explorer")
-    
-    robot_description_content = Command([
-        PathJoinSubstitution([FindExecutable(name="xacro")]), " ",
-        PathJoinSubstitution([pkg_share, "description/urdf", "explorer.urdf.xacro"]), " ",
-        "use_ignition:=false ",
-        "use_actuator_interface:=", use_actuator_interface,
-        " can_port:=", can_port,
-        " host_id:=", host_id,
-        " use_POC2:=", use_poc2,
-    ])
+    pkg_share = FindPackageShare("explorer_description")
+
+    robot_description_content = Command(
+        [
+            PathJoinSubstitution([FindExecutable(name="xacro")]),
+            " ",
+            PathJoinSubstitution([pkg_share, "urdf", "explorer.urdf.xacro"]),
+            " ",
+            "use_ignition:=",
+            use_simulation,
+            "use_actuator_interface:=",
+            use_actuator_interface,
+            " can_port:=",
+            can_port,
+            " host_id:=",
+            host_id,
+            " use_POC2:=",
+            use_poc2,
+        ]
+    )
     robot_description = {"robot_description": robot_description_content}
-
     # Config Files
-    robot_controllers = PathJoinSubstitution([pkg_share, "config", "explorer_controller.yaml"])
-    rviz_config_file = PathJoinSubstitution([pkg_share, "description/rviz", "view_robot.rviz"])
-    velocity_config = PathJoinSubstitution([
-        FindPackageShare("kinematic_guides_cartesian_velocity"), "config", "explorer_params.yaml"
-    ])
-    # Robot State Publisher
-    robot_state_publisher_node = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        parameters=[robot_description],
-        output="screen",
+    velocity_config = PathJoinSubstitution(
+        [FindPackageShare("kinematic_guides_cartesian_velocity"), "config", "explorer_params.yaml"]
     )
 
-    control_node = Node(
-        package="controller_manager",
-        executable="ros2_control_node",
-        parameters=[robot_controllers, robot_description],
-        output="both",
-        remappings=[("~/robot_description", "/robot_description")]
+    robot_simulation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("explorer_bringup"), "/launch/simulation_base.launch.py"]
+        ),
+        launch_arguments={
+            "use_POC2": use_poc2,
+            "gui": gui,
+            "use_sim_time": use_sim_time,
+            "rviz_delay": "0.0",
+            "extra_controllers_config": velocity_config,
+            "use_custom_controllers": "true",
+        }.items(),
+        condition=IfCondition(use_simulation),
     )
 
-    delayed_control_node = TimerAction(
-        period=1.0, 
-        actions=[control_node]
+    robot_hardware = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("explorer_bringup"), "/launch/hardware_base.launch.py"]
+        ),
+        launch_arguments={
+            "gui": gui,
+            "use_sim_time": use_sim_time,
+            "use_actuator_interface": "True",
+            "can_port": can_port,
+            "host_id": host_id,
+            "use_POC2": use_poc2,
+            "rviz_delay": "5.0",
+            "extra_controllers_config": velocity_config
+        }.items(),
+        condition=UnlessCondition(use_simulation),
     )
 
-    # Spawner for joint_state_broadcaster
-    # Use --activate flag to ensure it's fully activated before returning
-    joint_state_broadcaster_spawner = Node(
+    spawner_qontrol = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=[
-            "joint_state_broadcaster",
-            "-c",
-            "/controller_manager",
-            "--activate",
-        ],
-        output="screen",
+        arguments=["qontrol_explorer", "--controller-manager", "/controller_manager"],
     )
 
-    # Spawner for kinematic_guides_cartesian_velocity controller
-    # Spawn AFTER joint_state_broadcaster and fault_controller to ensure joints and manager are ready
-    kinematic_guides_spawner = Node(
+    spawner_teleop_controller = Node(
         package="controller_manager",
         executable="spawner",
         arguments=[
             "kinematic_guides_cartesian_velocity",
-            "-c",
+            "--controller-manager",
             "/controller_manager",
-            "--controller-type",
-            "kinematic_guides_cartesian_velocity/SharedControlVelocityController",
-            "--param-file",
-            velocity_config,
         ],
         output="screen",
     )
 
     # --- Teleoperation Node ---
-    teleop_config_file = PathJoinSubstitution([
-        FindPackageShare("joystick_interface"), "config", "explorer_joystick_parameters.yaml"
-    ])
-
-    teleop_node =Node(
-        package='joystick_interface',
-        executable='joystick_input_node',
-        name='joystick_input_node',
-        output='screen',
-        parameters=[teleop_config_file],
+    teleop_config_file = PathJoinSubstitution(
+        [
+            FindPackageShare("joystick_interface"),
+            "config",
+            "explorer_joystick_parameters.yaml",
+        ]
     )
 
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        arguments=["-d", rviz_config_file],
-        output="log",
-        condition=IfCondition(launch_rviz),
-    )
-
-    # Goal markers publisher (RViz visualization)
-    goal_marker_node = Node(
-        package="kinematic_guides_cartesian_velocity",
-        executable="goal_marker_publisher",
-        name="goal_marker_publisher",
+    teleop_node = Node(
+        package="joystick_interface",
+        executable="joystick_input_node",
+        name="joystick_input_node",
         output="screen",
-        parameters=[
-            velocity_config,
-            {"base_frame": "base_link"},
-            {"ee_frame": "end_effector_link"},
-            {"conf_topic": "/debug/goal_confidences"},
-            {"soft_goal_topic": "/debug/soft_goal"},
-            {"agnostic_goal_topic": "/debug/agnostic_goal"},
-            {"raw_velocity_topic": "/debug/raw_velocity"},
-            {"rate_hz": 10.0},
-        ],
-        condition=IfCondition(launch_rviz),
+        parameters=[teleop_config_file],
+        condition=IfCondition(use_joystick_interface),
     )
 
-    spawners_group = RegisterEventHandler(
-            event_handler=OnProcessStart(
-                target_action=control_node,
-                on_start=[joint_state_broadcaster_spawner]
-            )
-        )
+    joy_node = Node(
+        package="joy",
+        executable="joy_node",
+        name="joy_node",
+        condition=IfCondition(use_joystick_interface),
+    )
 
-
-    delayed_robot_controller = RegisterEventHandler(
+    # --------------------------------------------------------------------------
+    # 4. Event Handlers
+    # --------------------------------------------------------------------------
+    # delayed_spawner_qontrol = TimerAction(
+    #     period=10.0,
+    #     actions=[spawner_qontrol]
+    # )
+    start_cartesian_teleop_event = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=joint_state_broadcaster_spawner,
-            on_exit=[kinematic_guides_spawner]
+            target_action=spawner_qontrol, on_exit=[spawner_teleop_controller]
         )
     )
 
-    rviz_start_event = RegisterEventHandler(
-        event_handler=OnProcessStart(
-            target_action=robot_state_publisher_node,
-            on_start=[rviz_node]
-        )
-    )
-
+    # --------------------------------------------------------------------------
+    # 5. Launch Description
+    # --------------------------------------------------------------------------
     nodes_to_start = [
-            robot_state_publisher_node,
-            delayed_control_node,
-            spawners_group,
-            delayed_robot_controller,
-            rviz_start_event,
-            goal_marker_node, 
-            teleop_node]
+        robot_simulation,
+        robot_hardware,
+        teleop_node,
+        spawner_qontrol,
+        start_cartesian_teleop_event,
+        joy_node,
+    ]
 
     return LaunchDescription(declared_arguments + nodes_to_start)
