@@ -1,0 +1,3 @@
+[submodule "apriltag_ros2/src/glimpsh-eyetrax"]
+	path = apriltag_ros2/src/glimpsh-eyetrax
+	url = https://github.com/woubraim/glimpsh-eyetrax.git
