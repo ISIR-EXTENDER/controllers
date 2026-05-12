@@ -1,0 +1,7 @@
+int32 tag_id
+string label
+---
+bool success
+string message
+float64[3] position
+float64[4] orientation_wxyz

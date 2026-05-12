@@ -17,6 +17,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(robot_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(extender_msgs REQUIRED)
+find_package(apriltag_ros2 REQUIRED)
 
 include_directories(
   include
@@ -37,6 +38,7 @@ ament_target_dependencies(${PROJECT_NAME}
   visualization_msgs
   tf2_ros
   tf2_geometry_msgs
+  apriltag_ros2
 )
 
 # Register your controller class as a component

@@ -33,6 +33,9 @@
 #include "robot_interfaces/generic_component.hpp"
 #include "robot_interfaces/robot_interfaces_algos.hpp"
 
+#include "apriltag_ros2/msg/detected_goal_array.hpp"
+#include "apriltag_ros2/srv/save_current_tag_goal.hpp"
+
 namespace cartesian_velocity_controller
 {
   /**
@@ -585,6 +588,27 @@ namespace cartesian_velocity_controller
 
     std::vector<std::string> command_names_; ///< Names of the command interfaces.
 
+    //202603
+    void goalsCallback(const apriltag_ros2::msg::DetectedGoalArray::SharedPtr msg);
+    std::unordered_map<int, Goal> detected_goals_memory_;
+    std::unordered_map<int, std::string> active_goal_key_by_tag_id_;
+    bool isSameDetectedGoal(const Goal &existing_goal,
+                        const geometry_msgs::msg::Pose &new_pose,
+                        double pos_tol = 0.02,
+                        double ang_tol_rad = 10.0 * M_PI / 180.0) const;
+    std::unordered_map<int, geometry_msgs::msg::Pose> latest_detected_tag_poses_;
+    rclcpp::Service<apriltag_ros2::srv::SaveCurrentTagGoal>::SharedPtr save_tag_goal_srv_;
+
+    void saveCurrentTagGoalCallback(
+        const std::shared_ptr<apriltag_ros2::srv::SaveCurrentTagGoal::Request> req,
+        std::shared_ptr<apriltag_ros2::srv::SaveCurrentTagGoal::Response> res);
+
+    bool saveGoalToYaml(
+        int tag_id,
+        const std::string &label,
+        const Eigen::Vector3d &position,
+        const Eigen::Quaterniond &orientation);
+
     // Plotting publishers
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr latest_twist_pub_; ///< Publisher for latest twist command.
     rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr initial_filtered_linear_velocity_pub_;  ///< Publisher for initial filtered linear velocity.
@@ -607,6 +631,9 @@ namespace cartesian_velocity_controller
     // Subscription for teleop Twist + Mode commands.
     rclcpp::Subscription<extender_msgs::msg::TeleopCommand>::SharedPtr teleop_cmd_sub_; ///< Subscription for teleop commands.
     rclcpp::Subscription<extender_msgs::msg::SharedControlGoalArray>::SharedPtr goal_sub_; ///< Subscription for shared control goals.
+
+    //202603
+    rclcpp::Subscription<apriltag_ros2::msg::DetectedGoalArray>::SharedPtr goals_sub_;
 
   };
 

@@ -2,6 +2,7 @@
 #include "pluginlib/class_list_macros.hpp"
 #include <chrono>
 #include <functional>
+#include "apriltag_ros2/msg/detected_goal_array.hpp" //202603
 
 namespace cartesian_velocity_controller
 {
@@ -62,6 +63,35 @@ namespace cartesian_velocity_controller
     goal_sub_ = get_node()->create_subscription<extender_msgs::msg::SharedControlGoalArray>(
         "/shared_control/dynamic_goals", 10,
         std::bind(&SharedControlVelocityController::goalCallback, this, std::placeholders::_1));
+    
+    // ---------------------------------------------------------------------------
+    // Dynamic AprilTag goal subscriber
+    // ---------------------------------------------------------------------------
+    // The AprilTag node publishes all currently visible tags as 6D goals in the
+    // robot base frame. This controller uses those detections to dynamically add,
+    // update, or remove goals from the shared-control goal set.
+    goals_sub_ = get_node()->create_subscription<apriltag_ros2::msg::DetectedGoalArray>(
+        "/detected_goals",
+        10,
+        std::bind(
+            &SharedControlVelocityController::goalsCallback,
+            this,
+            std::placeholders::_1));
+
+    // ---------------------------------------------------------------------------
+    // Save-current-tag-goal service
+    // ---------------------------------------------------------------------------
+    // This service is called from the AprilTag visualization node when the user
+    // clicks the SAVE POSE button. It saves the current relative transform between
+    // the selected AprilTag and the end-effector.
+    save_tag_goal_srv_ =
+        get_node()->create_service<apriltag_ros2::srv::SaveCurrentTagGoal>(
+            "/save_current_tag_goal",
+            std::bind(
+                &SharedControlVelocityController::saveCurrentTagGoalCallback,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2));
 
     return CallbackReturn::SUCCESS;
   }
@@ -1111,9 +1141,377 @@ namespace cartesian_velocity_controller
       goal_reached_pub_->publish(msg);
     }
 
-    RCLCPP_INFO(get_node()->get_logger(), "[REACHED] ID %d (%s) - Dist: %.3f m", id, id.c_str(),
-                distance);
+    RCLCPP_INFO(get_node()->get_logger(), "[REACHED] ID %s - Dist: %.3f m", id.c_str(), distance);
   }
+
+  //202603
+  bool SharedControlVelocityController::isSameDetectedGoal(
+    const Goal &existing_goal,
+    const geometry_msgs::msg::Pose &new_pose,
+    double pos_tol,
+    double ang_tol_rad) const
+  {
+    // ---------------------------------------------------------------------------
+    // Position comparison
+    // ---------------------------------------------------------------------------
+    // Convert the newly detected pose position into an Eigen vector and compare it
+    // with the existing goal position.
+    const Eigen::Vector3d new_position(
+        new_pose.position.x,
+        new_pose.position.y,
+        new_pose.position.z);
+
+    const double position_error = (existing_goal.x - new_position).norm();
+
+    // ---------------------------------------------------------------------------
+    // Orientation comparison
+    // ---------------------------------------------------------------------------
+    // Convert the newly detected pose orientation into an Eigen quaternion.
+    Eigen::Quaterniond new_orientation(
+        new_pose.orientation.w,
+        new_pose.orientation.x,
+        new_pose.orientation.y,
+        new_pose.orientation.z);
+
+    // Protect against invalid quaternions.
+    if (new_orientation.norm() < 1e-9)
+    {
+      new_orientation = Eigen::Quaterniond::Identity();
+    }
+    else
+    {
+      new_orientation.normalize();
+    }
+
+    // Compute the angular error between the existing goal orientation and the new
+    // detected orientation.
+    const double angular_error =
+        computeRotationError(existing_goal.q, new_orientation).angle;
+
+    // The detected goal is considered the same if both position and orientation
+    // errors are below their thresholds.
+    return (position_error <= pos_tol) && (angular_error <= ang_tol_rad);
+  }
+
+  //202603
+void SharedControlVelocityController::goalsCallback(
+    const apriltag_ros2::msg::DetectedGoalArray::SharedPtr msg)
+  {
+    RCLCPP_INFO(
+        get_node()->get_logger(),
+        "Received %zu detected AprilTag goal(s).",
+        msg->goals.size());
+
+    // ---------------------------------------------------------------------------
+    // No visible AprilTags
+    // ---------------------------------------------------------------------------
+    // Remove only AprilTag dynamic goals. Keep G0 and parameter/static goals.
+    if (msg->goals.empty())
+    {
+      for (const auto &[tag_id, goal_key] : active_goal_key_by_tag_id_)
+      {
+        active_goals_.erase(goal_key);
+      }
+
+      active_goal_key_by_tag_id_.clear();
+
+      RCLCPP_WARN(
+          get_node()->get_logger(),
+          "No AprilTag goals received. Removed all active AprilTag goals.");
+
+      return;
+    }
+
+    std::unordered_set<int> seen_ids;
+
+    // ---------------------------------------------------------------------------
+    // Add or update currently visible AprilTags
+    // ---------------------------------------------------------------------------
+    for (const auto &detected_goal_msg : msg->goals)
+    {
+      const int tag_id = detected_goal_msg.id;
+      const auto &pose = detected_goal_msg.pose;
+
+      seen_ids.insert(tag_id);
+
+      // Store latest pose for saveCurrentTagGoalCallback().
+      latest_detected_tag_poses_[tag_id] = pose;
+
+      const std::string goal_key = "tag_" + std::to_string(tag_id);
+
+      // Convert pose to Goal.
+      Goal detected_goal;
+
+      detected_goal.x = Eigen::Vector3d(
+          pose.position.x,
+          pose.position.y,
+          pose.position.z);
+
+      Eigen::Quaterniond orientation(
+          pose.orientation.w,
+          pose.orientation.x,
+          pose.orientation.y,
+          pose.orientation.z);
+
+      if (orientation.norm() < 1e-9)
+      {
+        orientation = Eigen::Quaterniond::Identity();
+      }
+      else
+      {
+        orientation.normalize();
+      }
+
+      detected_goal.q = orientation;
+
+      // -------------------------------------------------------------------------
+      // Existing AprilTag goal
+      // -------------------------------------------------------------------------
+      auto existing_goal_it = active_goals_.find(goal_key);
+
+      if (existing_goal_it != active_goals_.end())
+      {
+        // Preserve confidence.
+        detected_goal.c = existing_goal_it->second.c;
+
+        if (isSameDetectedGoal(existing_goal_it->second, pose))
+        {
+          // Pose close enough: do not rewrite pose, just keep it.
+          RCLCPP_INFO(
+              get_node()->get_logger(),
+              "Tag ID %d already active. Pose is close. Keeping goal '%s' with confidence %.3f.",
+              tag_id,
+              goal_key.c_str(),
+              existing_goal_it->second.c);
+        }
+        else
+        {
+          // Same tag moved significantly: update pose, preserve confidence.
+          active_goals_[goal_key] = detected_goal;
+
+          RCLCPP_INFO(
+              get_node()->get_logger(),
+              "Tag ID %d moved. Updated goal '%s', kept confidence %.3f.",
+              tag_id,
+              goal_key.c_str(),
+              detected_goal.c);
+        }
+      }
+      // -------------------------------------------------------------------------
+      // New AprilTag goal
+      // -------------------------------------------------------------------------
+      else
+      {
+        detected_goal.c = 0.0;
+        active_goals_[goal_key] = detected_goal;
+
+        RCLCPP_INFO(
+            get_node()->get_logger(),
+            "New tag ID %d added as active goal '%s' with confidence 0.0.",
+            tag_id,
+            goal_key.c_str());
+      }
+
+      active_goal_key_by_tag_id_[tag_id] = goal_key;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Remove AprilTag goals that disappeared
+    // ---------------------------------------------------------------------------
+    for (auto it = active_goal_key_by_tag_id_.begin();
+        it != active_goal_key_by_tag_id_.end();)
+    {
+      const int tag_id = it->first;
+      const std::string goal_key = it->second;
+
+      if (seen_ids.find(tag_id) == seen_ids.end())
+      {
+        active_goals_.erase(goal_key);
+
+        RCLCPP_INFO(
+            get_node()->get_logger(),
+            "Tag ID %d disappeared. Removed active goal '%s'.",
+            tag_id,
+            goal_key.c_str());
+
+        it = active_goal_key_by_tag_id_.erase(it);
+      }
+      else
+      {
+        ++it;
+      }
+    }
+  }
+  void SharedControlVelocityController::saveCurrentTagGoalCallback(
+    const std::shared_ptr<apriltag_ros2::srv::SaveCurrentTagGoal::Request> req,
+    std::shared_ptr<apriltag_ros2::srv::SaveCurrentTagGoal::Response> res)
+  {
+    const int tag_id = req->tag_id;
+
+    // ---------------------------------------------------------------------------
+    // Check that the requested tag is currently detected
+    // ---------------------------------------------------------------------------
+    const auto tag_it = latest_detected_tag_poses_.find(tag_id);
+
+    if (tag_it == latest_detected_tag_poses_.end())
+    {
+      res->success = false;
+      res->message = "Requested tag is not currently detected.";
+      return;
+    }
+
+    const auto &tag_pose = tag_it->second;
+
+    // ---------------------------------------------------------------------------
+    // Convert current tag pose from ROS message to Eigen transform
+    // ---------------------------------------------------------------------------
+    const Eigen::Vector3d p_base_tag(
+        tag_pose.position.x,
+        tag_pose.position.y,
+        tag_pose.position.z);
+
+    Eigen::Quaterniond q_base_tag(
+        tag_pose.orientation.w,
+        tag_pose.orientation.x,
+        tag_pose.orientation.y,
+        tag_pose.orientation.z);
+
+    if (q_base_tag.norm() < 1e-9)
+    {
+      q_base_tag = Eigen::Quaterniond::Identity();
+    }
+    else
+    {
+      q_base_tag.normalize();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Current end-effector pose in base frame
+    // ---------------------------------------------------------------------------
+    const Eigen::Vector3d p_base_ee = current_position_;
+    Eigen::Quaterniond q_base_ee = current_orientation_;
+
+    if (q_base_ee.norm() < 1e-9)
+    {
+      q_base_ee = Eigen::Quaterniond::Identity();
+    }
+    else
+    {
+      q_base_ee.normalize();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Build homogeneous transforms
+    // ---------------------------------------------------------------------------
+    Eigen::Isometry3d T_base_tag = Eigen::Isometry3d::Identity();
+    T_base_tag.linear() = q_base_tag.toRotationMatrix();
+    T_base_tag.translation() = p_base_tag;
+
+    Eigen::Isometry3d T_base_ee = Eigen::Isometry3d::Identity();
+    T_base_ee.linear() = q_base_ee.toRotationMatrix();
+    T_base_ee.translation() = p_base_ee;
+
+    // ---------------------------------------------------------------------------
+    // Compute the desired relative pose:
+    //
+    //   T_tag_ee = inverse(T_base_tag) * T_base_ee
+    //
+    // This stores the end-effector pose relative to the AprilTag frame.
+    // Later, if the tag is detected again, the controller can reconstruct the
+    // desired end-effector pose from the tag pose.
+    // ---------------------------------------------------------------------------
+    const Eigen::Isometry3d T_tag_ee = T_base_tag.inverse() * T_base_ee;
+
+    const Eigen::Vector3d p_tag_ee = T_tag_ee.translation();
+
+    Eigen::Quaterniond q_tag_ee(T_tag_ee.linear());
+    q_tag_ee.normalize();
+
+    // ---------------------------------------------------------------------------
+    // Fill service response
+    // ---------------------------------------------------------------------------
+    res->position[0] = p_tag_ee.x();
+    res->position[1] = p_tag_ee.y();
+    res->position[2] = p_tag_ee.z();
+
+    res->orientation_wxyz[0] = q_tag_ee.w();
+    res->orientation_wxyz[1] = q_tag_ee.x();
+    res->orientation_wxyz[2] = q_tag_ee.y();
+    res->orientation_wxyz[3] = q_tag_ee.z();
+
+    // ---------------------------------------------------------------------------
+    // Save the relative pose to YAML
+    // ---------------------------------------------------------------------------
+    if (!saveGoalToYaml(tag_id, req->label, p_tag_ee, q_tag_ee))
+    {
+      res->success = false;
+      res->message = "Pose computed, but YAML save failed.";
+      return;
+    }
+
+    res->success = true;
+    res->message = "Relative tag-to-end-effector pose saved.";
+
+    RCLCPP_INFO(
+        get_node()->get_logger(),
+        "Saved desired pose for tag %d [%s]: pos=[%.4f %.4f %.4f], q=[%.4f %.4f %.4f %.4f]",
+        tag_id,
+        req->label.c_str(),
+        p_tag_ee.x(),
+        p_tag_ee.y(),
+        p_tag_ee.z(),
+        q_tag_ee.w(),
+        q_tag_ee.x(),
+        q_tag_ee.y(),
+        q_tag_ee.z());
+  }
+
+  bool SharedControlVelocityController::saveGoalToYaml(
+    int tag_id,
+    const std::string &label,
+    const Eigen::Vector3d &position,
+    const Eigen::Quaterniond &orientation)
+  {
+    // YAML file used to store tag-relative desired end-effector poses.
+    //
+    // Each saved entry has the following format:
+    //
+    // - tag_id: 4
+    //   label: "pose"
+    //   position: [x, y, z]
+    //   orientation_wxyz: [w, x, y, z]
+    const std::string file_path =
+        "/home/woubraim/ros2_ws/src/apriltag_ros2/src/saved_tag_goals.yaml";
+
+    std::ofstream file(file_path, std::ios::app);
+
+    if (!file.is_open())
+    {
+      RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Failed to open YAML file: %s",
+          file_path.c_str());
+
+      return false;
+    }
+
+    file << "- tag_id: " << tag_id << "\n";
+    file << "  label: \"" << label << "\"\n";
+    file << "  position: ["
+        << position.x() << ", "
+        << position.y() << ", "
+        << position.z() << "]\n";
+    file << "  orientation_wxyz: ["
+        << orientation.w() << ", "
+        << orientation.x() << ", "
+        << orientation.y() << ", "
+        << orientation.z() << "]\n";
+
+    file.close();
+
+    return true;
+  }
+
 
 } // namespace cartesian_velocity_controller
 
