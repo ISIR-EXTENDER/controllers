@@ -22,7 +22,7 @@ qontrol_explorer:
       - position
       - velocity
       - effort
-    robot_command: position
+    robot_command: velocity
 
     # Velocity parameters
     command_max_linear_velocity: 0.05
@@ -47,6 +47,7 @@ qontrol_explorer:
 cartesian_velocity_teleop_controller:
   ros__parameters:
     gain: 1.0
+    snake_gain: 5.0
     alpha: 0.005
     max_linear_delta: 0.007
     max_angular_delta: 0.014
