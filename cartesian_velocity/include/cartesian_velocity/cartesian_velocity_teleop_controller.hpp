@@ -74,6 +74,9 @@ namespace cartesian_velocity_controller
 
     Eigen::Vector3d computeBaselineAngularVelocity(const Eigen::Vector3d &current_position,
                                                    const Eigen::Vector3d &linear_velocity) const;
+    Eigen::Vector3d computeSnakeVelocity(const Eigen::Matrix3d &current_orientation,
+                                         const Eigen::Vector3d &linear_velocity,
+                                         const Eigen::Vector3d &angular_velocity_) const;
     // Helper: apply first-order low-pass filter to a 3D vector
     Eigen::Vector3d applyLowPassFilterVector(const Eigen::Vector3d &input,
                                              const Eigen::Vector3d &previous, double alpha) const;
@@ -104,6 +107,9 @@ namespace cartesian_velocity_controller
 
     /// Overall scaling of the computed velocity command
     double gain_;
+
+    // Snake scaling of the rotation over the translation
+    double snake_gain_;
 
     // Low-pass filter configuration
     // Cutoff frequency [Hz] for the first-order LPF applied to joystick twist
