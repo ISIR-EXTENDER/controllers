@@ -20,7 +20,7 @@ namespace cartesian_velocity_controller
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    
+
     config.names = robot_vel_interface_->get_commands_names();
     return config;
   }
@@ -48,6 +48,7 @@ namespace cartesian_velocity_controller
   void CartesianVelocityTeleopController::loadParameters()
   {
     declare_and_get_parameters("gain", gain_, 1.0);
+    declare_and_get_parameters("snake_gain", snake_gain_, 3.0);
     declare_and_get_parameters("initial_filter_cutoff_frequency", initial_filter_cutoff_frequency_,
                                0.8);
     declare_and_get_parameters("max_linear_delta", max_linear_delta_, 0.007);
@@ -158,7 +159,7 @@ namespace cartesian_velocity_controller
       const rclcpp::Time & /*time*/, const rclcpp::Duration &period)
   {
     robot_vel_interface_->syncState();
-    
+
     typedef extender_msgs::msg::TeleopCommand Mode;
     // Get current EE pose.
     robot_interfaces::CartesianPosition temp_pose =
@@ -227,6 +228,10 @@ namespace cartesian_velocity_controller
       cartesian_angular_velocity =
           computeBaselineAngularVelocity(temp_pose.translation, cartesian_linear_velocity);
       break;
+    case Mode::SNAKE:
+      cartesian_angular_velocity =
+          computeSnakeVelocity(current_orientation_.toRotationMatrix(), cartesian_linear_velocity,
+                               cartesian_angular_velocity);
     default:
       // Use both linear and angular components
       break;
@@ -297,6 +302,17 @@ namespace cartesian_velocity_controller
     }
 
     return Eigen::Vector3d(0.0, 0.0, omega_z_baseline); // ω_{E,u,T}
+  }
+
+  Eigen::Vector3d CartesianVelocityTeleopController::computeSnakeVelocity(const Eigen::Matrix3d &current_orientation,
+                                       const Eigen::Vector3d &linear_velocity,
+                                       const Eigen::Vector3d &angular_velocity_) const
+  {
+    Eigen::Vector3d angular_velocity;
+    Eigen::Vector3d z7 = current_orientation.col(2);
+    angular_velocity = snake_gain_ * z7.cross(linear_velocity) + angular_velocity_;
+
+    return angular_velocity;
   }
 
   void CartesianVelocityTeleopController::twistCallback(
