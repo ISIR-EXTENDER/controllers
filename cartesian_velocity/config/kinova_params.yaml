@@ -2,7 +2,7 @@ controller_manager:
   ros__parameters:
     update_rate: 750  # Hz
 
-    qontrol_explorer:
+    qontrol_kinova:
       type: qontrol_controller/QontrolDecoupledVelocityController
       auto_start: false
 
@@ -16,7 +16,7 @@ controller_manager:
     cartesian_velocity_teleop_controller:
       type: cartesian_velocity/CartesianVelocityTeleopController
 
-qontrol_explorer:
+qontrol_kinova:
   ros__parameters:
     # Base parameters
     robot_description_origin: robot_state_publisher

@@ -109,7 +109,7 @@ def generate_launch_description():
     spawner_qontrol = Node(
         package="controller_manager", 
         executable="spawner",
-        arguments=["qontrol_explorer", "--controller-manager", "/controller_manager"],
+        arguments=["qontrol_kinova", "--controller-manager", "/controller_manager"],
     )
 
     spawner_teleop_controller = Node(
