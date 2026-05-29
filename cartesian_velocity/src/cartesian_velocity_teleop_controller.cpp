@@ -75,12 +75,38 @@ namespace cartesian_velocity_controller
     auto node = get_node();
     std::string robot_description;
 
-    if (!node->get_parameter("robot_description", robot_description))
+    // Define which node actually owns the robot_description.
+    // both "/robot_state_publisher" or "/controller_manager" work.
+    std::string robot_description_origin = "/controller_manager"; 
+
+    try 
     {
-      RCLCPP_ERROR(node->get_logger(), "Missing robot_description");
+      auto temp_node = std::make_shared<rclcpp::Node>(
+        "temp_param_client_node", 
+        rclcpp::NodeOptions().use_intra_process_comms(false)
+      );
+      
+      rclcpp::SyncParametersClient param_client(temp_node, robot_description_origin);
+
+      RCLCPP_INFO(node->get_logger(), "Waiting for parameter service on %s...", robot_description_origin.c_str());
+      if (!param_client.wait_for_service(std::chrono::seconds(5))) 
+      {
+        RCLCPP_ERROR(node->get_logger(), "Parameter service not available on %s", robot_description_origin.c_str());
+        return false;
+      }
+
+      robot_description = param_client.get_parameter<std::string>("robot_description");
+      RCLCPP_INFO(node->get_logger(), "Successfully retrieved robot_description (%zu characters)", robot_description.size());
+    } 
+    catch (const std::exception &e) 
+    {
+      RCLCPP_ERROR(node->get_logger(), "Failed to get 'robot_description' from %s: %s", robot_description_origin.c_str(), e.what());
       return false;
     }
 
+    if (!node->has_parameter("tool_frame")) {
+    node->declare_parameter<std::string>("tool_frame", "end_effector_link"); 
+    }
     robot_vel_interface_ = robot_interfaces::create_robot_component(robot_type_);
     if (!robot_vel_interface_ ||
         !robot_vel_interface_->initKinematics(robot_description,
