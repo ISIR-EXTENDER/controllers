@@ -116,6 +116,7 @@ def generate_launch_description():
         package="controller_manager",
         executable="spawner",
         arguments=["cartesian_velocity_teleop_controller", "--controller-manager", "/controller_manager"],
+        parameters=[robot_description],
         output="screen",
     )
 
@@ -135,7 +136,7 @@ def generate_launch_description():
     gripper_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["robotiq_gripper_controller", "-c", "/controller_manager"],
+        arguments=["gripper_controller", "-c", "/controller_manager"],
         output="screen",
     )
 
@@ -171,11 +172,9 @@ def generate_launch_description():
         period=2.0,
         actions=[spawner_qontrol]
     )
-    start_teleop_event = RegisterEventHandler(
-        event_handler=OnProcessExit(
-            target_action=spawner_qontrol,
-            on_exit=[spawner_teleop_controller, gripper_controller_spawner] #, fault_controller_spawner]
-        )
+    start_teleop_event = TimerAction(
+    period=5.0,
+    actions=[spawner_teleop_controller, gripper_controller_spawner]
     )
 
     # --------------------------------------------------------------------------

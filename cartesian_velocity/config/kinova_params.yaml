@@ -1,6 +1,6 @@
 controller_manager:
   ros__parameters:
-    update_rate: 750  # Hz
+    update_rate: 500  # Hz
 
     qontrol_kinova:
       type: qontrol_controller/QontrolDecoupledVelocityController
@@ -9,7 +9,7 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    robotiq_gripper_controller:
+    gripper_controller:
       type: forward_command_controller/ForwardCommandController
       auto_start: false
 
@@ -42,7 +42,7 @@ qontrol_kinova:
     p_gain: 100.0
     lambda: 0.1
 
-robotiq_gripper_controller:
+gripper_controller:
   ros__parameters:
     joints:
       - robotiq_85_left_knuckle_joint
