@@ -7,4 +7,11 @@
       A velocity Cartesian teleoperation controller.
     </description>
   </class>
+  <class name="cartesian_velocity/SnakeDemoTeleopController"
+         type="cartesian_velocity_controller::SnakeDemoTeleopController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Snake specialized controller.
+    </description>
+  </class>
 </library>
