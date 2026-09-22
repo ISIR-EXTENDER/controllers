@@ -3,12 +3,12 @@ controller_manager:
     update_rate: 250  # Hz
 
     qontrol_explorer:
-      type: qontrol_controller/QontrolVelocityController
+      type: qontrol_controller/QontrolDecoupledVelocityController
       auto_start: false
       is_chainable: true
 
-    cartesian_velocity_teleop_controller:
-      type: cartesian_velocity/CartesianVelocityTeleopController
+    snake_demo:
+      type: cartesian_velocity/SnakeDemoTeleopController
       auto_start: false
       
 
@@ -25,14 +25,14 @@ qontrol_explorer:
     robot_command: velocity
 
     # Velocity parameters
-    command_max_linear_velocity: 0.05
+    command_max_linear_velocity: 0.07
     command_max_angular_velocity: 1.0
     refresh_mapping: True
     open_loop: True
     input_topic_name: /explorer_user_interfaces/rqt_armcontrol/input_device_velocity
     regularisation_weight: 1e-2
     root_frame_control: True
-    deadzone: 0.1
+    deadzone: 0.2
     velocity_limit: 0.5
     horizon: 15
     p_gain: 100.0
@@ -44,17 +44,15 @@ qontrol_explorer:
     elbow_frame: "link_3"
     handle_frame: "link_5"
 
-cartesian_velocity_teleop_controller:
+snake_demo:
   ros__parameters:
-    gain: 1.0
-    snake_gain: 5.0
-    alpha: 0.005
-    max_linear_delta: 0.007
-    max_angular_delta: 0.014
+    gain: 0.07
+    snake_gain: 20.0
+    max_linear: 0.07
+    max_angular: 0.2 
+    deadzone_joy: 0.3
     robot_type: "explorer_velocity"
-    input_twist_frame: "ee"   # "base" or "ee"
-    base_frame: "base_link"
-    tool_frame: "tool0"
+    tool_frame: "ft_frame"
     command_names:
       - "qontrol_explorer/linear_x"
       - "qontrol_explorer/linear_y"

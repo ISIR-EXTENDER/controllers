@@ -1,28 +1,32 @@
 controller_manager:
   ros__parameters:
-    update_rate: 250  # Hz
+    update_rate: 750  # Hz
 
-    qontrol_explorer:
-      type: qontrol_controller/QontrolVelocityController
+    qontrol_kinova:
+      type: qontrol_controller/QontrolVelocityTransparentColController
       auto_start: false
-      is_chainable: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    robotiq_gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+      auto_start: false
 
     cartesian_velocity_teleop_controller:
       type: cartesian_velocity/CartesianVelocityTeleopController
-      auto_start: false
-      
 
-qontrol_explorer:
+qontrol_kinova:
   ros__parameters:
     # Base parameters
     robot_description_origin: robot_state_publisher
-    tip_frame: ft_frame
+    tip_frame: end_effector_link
     root_frame: base_link
     state_interface:
       - position
       - velocity
       - effort
-    robot_command: velocity
+    robot_command: position
 
     # Velocity parameters
     command_max_linear_velocity: 0.05
@@ -37,24 +41,38 @@ qontrol_explorer:
     horizon: 15
     p_gain: 100.0
     lambda: 0.1
-    points_collision: [0.0, -0.6, 0.0, 0.0, -0.6, 1.0]
-    wall_constraint_horizon: 15
-    d_secure: 0.2
-    d_prevent: 0.2
-    elbow_frame: "link_3"
-    handle_frame: "link_5"
+
+robotiq_gripper_controller:
+  ros__parameters:
+    joints:
+      - robotiq_85_left_knuckle_joint
+    interface_name: position
+
+joint_state_broadcaster:
+  ros__parameters:
+    joints:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+      - joint_7
+      - robotiq_85_left_knuckle_joint 
 
 cartesian_velocity_teleop_controller:
   ros__parameters:
+    robot_type: "kinova_velocity"
+    base_frame: "base_link"
+    tool_frame: "end_effector_link"
+    input_twist_frame: "ee"   # "base" or "ee"
+    # Controller parameters
     gain: 1.0
     snake_gain: 5.0
-    alpha: 0.005
+    initial_filter_cutoff_frequency: 2.0
     max_linear_delta: 0.007
-    max_angular_delta: 0.014
-    robot_type: "explorer_velocity"
-    input_twist_frame: "ee"   # "base" or "ee"
-    base_frame: "base_link"
-    tool_frame: "tool0"
+    max_angular_delta: 10.0
+    # Command interfaces for Kinova twist control
     command_names:
       - "qontrol_explorer/linear_x"
       - "qontrol_explorer/linear_y"
