@@ -10,7 +10,7 @@
 
 #include <std_msgs/msg/string.hpp>
 
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <Eigen/Dense>

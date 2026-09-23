@@ -2,9 +2,9 @@
 #include "pluginlib/class_list_macros.hpp"
 #include <chrono>
 #include <functional>
-#include "visual_servoing/msg/detected_goal_array.hpp"
-#include "visual_servoing/msg/shared_control_debug.hpp"
-#include "visual_servoing/msg/shared_control_goal_debug.hpp"
+#include "shared_control/msg/detected_goal_array.hpp"
+#include "shared_control/msg/shared_control_debug.hpp"
+#include "shared_control/msg/shared_control_goal_debug.hpp"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -96,7 +96,7 @@ namespace cartesian_velocity_controller
     // This controller only consumes those already-transformed goals and updates
     // the shared-control goal set. It does not run AprilTag detection, TF camera
     // transforms, or OpenCV display; those are handled by the visual_servoing package.
-    /*goals_sub_ = get_node()->create_subscription<visual_servoing::msg::DetectedGoalArray>(
+    /*goals_sub_ = get_node()->create_subscription<shared_control::msg::DetectedGoalArray>(
         "/visual_servoing/detected_goals",
         10,
         std::bind(
@@ -245,7 +245,7 @@ namespace cartesian_velocity_controller
     beep_pub_ = node->create_publisher<std_msgs::msg::Bool>("/feedback/beep_trigger", 10);
     goal_reached_pub_ = node->create_publisher<std_msgs::msg::String>("/debug/goal_reached", 10);
     mode_pub_ = node->create_publisher<std_msgs::msg::Int32>("/debug/mode", 10);
-    shared_control_debug_pub_ = node->create_publisher<visual_servoing::msg::SharedControlDebug>("/shared_control/debug", 10);
+    shared_control_debug_pub_ = node->create_publisher<shared_control::msg::SharedControlDebug>("/shared_control/debug", 10);
   }
 
   bool SharedControlVelocityController::init_robot_interface()
@@ -1170,7 +1170,7 @@ namespace cartesian_velocity_controller
 
     if (shared_control_debug_pub_)
     {
-      visual_servoing::msg::SharedControlDebug dbg;
+      shared_control::msg::SharedControlDebug dbg;
 
       dbg.header.stamp = now;
       dbg.header.frame_id = "base_link";
@@ -1228,7 +1228,7 @@ namespace cartesian_velocity_controller
           continue;
         }
 
-        visual_servoing::msg::SharedControlGoalDebug goal_dbg;
+        shared_control::msg::SharedControlGoalDebug goal_dbg;
 
         goal_dbg.id = -1;
 
@@ -1426,7 +1426,7 @@ namespace cartesian_velocity_controller
 
   //202603
 void SharedControlVelocityController::goalsCallback(
-    const visual_servoing::msg::DetectedGoalArray::SharedPtr msg)
+    const shared_control::msg::DetectedGoalArray::SharedPtr msg)
   {
     RCLCPP_INFO(
         get_node()->get_logger(),

@@ -33,8 +33,8 @@
 #include "robot_interfaces/generic_component.hpp"
 #include "robot_interfaces/robot_interfaces_algos.hpp"
 
-#include "visual_servoing/msg/detected_goal_array.hpp"
-#include "visual_servoing/msg/shared_control_debug.hpp"
+#include "shared_control/msg/detected_goal_array.hpp"
+#include "shared_control/msg/shared_control_debug.hpp"
 
 namespace cartesian_velocity_controller
 {
@@ -589,7 +589,7 @@ namespace cartesian_velocity_controller
     std::vector<std::string> command_names_; ///< Names of the command interfaces.
 
     //202603
-    void goalsCallback(const visual_servoing::msg::DetectedGoalArray::SharedPtr msg);
+    void goalsCallback(const shared_control::msg::DetectedGoalArray::SharedPtr msg);
     std::unordered_map<int, Goal> detected_goals_memory_;
     std::unordered_map<int, std::string> active_goal_key_by_tag_id_;
     //bool isSameDetectedGoal(const Goal &existing_goal,
@@ -625,8 +625,8 @@ namespace cartesian_velocity_controller
     rclcpp::Subscription<extender_msgs::msg::SharedControlGoalArray>::SharedPtr goal_sub_; ///< Subscription for shared control goals.
 
     //202603
-    rclcpp::Subscription<visual_servoing::msg::DetectedGoalArray>::SharedPtr goals_sub_;
-    rclcpp::Publisher<visual_servoing::msg::SharedControlDebug>::SharedPtr shared_control_debug_pub_;
+    rclcpp::Subscription<shared_control::msg::DetectedGoalArray>::SharedPtr goals_sub_;
+    rclcpp::Publisher<shared_control::msg::SharedControlDebug>::SharedPtr shared_control_debug_pub_;
 
   };
 

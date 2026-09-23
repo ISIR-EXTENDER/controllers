@@ -21,7 +21,7 @@ find_package(robot_interfaces REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(extender_msgs REQUIRED)
 #find_package(apriltag_ros2 REQUIRED)
-find_package(visual_servoing REQUIRED)
+find_package(shared_control REQUIRED)
 find_package(controller_interface REQUIRED) 
 find_package(pluginlib REQUIRED)
 
@@ -45,7 +45,7 @@ ament_target_dependencies(${PROJECT_NAME}
   tf2_ros
   tf2_geometry_msgs
   #apriltag_ros2
-  visual_servoing
+  shared_control
   controller_interface
   pluginlib
 )

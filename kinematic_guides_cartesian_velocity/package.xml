@@ -19,7 +19,7 @@
   <depend>robot_interfaces</depend>
   <depend>extender_msgs</depend>
   <depend>controller_manager</depend>
-  <depend>visual_servoing</depend>
+  <depend>shared_control</depend>
   <depend>joystick_interface</depend>
   <depend>controller_interface</depend>
   <depend>pluginlib</depend>
