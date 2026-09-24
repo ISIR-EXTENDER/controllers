@@ -1,4 +1,7 @@
 import os
+#import tempfile
+#import yaml as yaml_module
+#from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -18,7 +21,7 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     # --------------------------------------------------------------------------
@@ -88,17 +91,23 @@ def generate_launch_description():
             " ",
             "use_ignition:=",
             use_simulation,
+            " ",
             "use_actuator_interface:=",
             use_actuator_interface,
-            " can_port:=",
+            " ",
+            "can_port:=",
             can_port,
-            " host_id:=",
+            " ",
+            "host_id:=",
             host_id,
-            " use_POC2:=",
+            " ",
+            "use_POC2:=",
             use_poc2,
         ]
     )
-    robot_description = {"robot_description": robot_description_content}
+    robot_description = {
+    "robot_description": ParameterValue(robot_description_content, value_type=str)
+}
     # Config Files
     velocity_config = PathJoinSubstitution(
         [FindPackageShare("kinematic_guides_cartesian_velocity"), "config", "explorer_params.yaml"]
@@ -142,16 +151,31 @@ def generate_launch_description():
         arguments=["qontrol_explorer", "--controller-manager", "/controller_manager"],
     )
 
+    #spawner_teleop_controller = Node(
+        #package="controller_manager",
+        #executable="spawner",
+        #arguments=[
+            #"kinematic_guides_cartesian_velocity",
+            #"--controller-manager",
+            #"/controller_manager",
+            #"--param-file",
+            #velocity_config,
+        #],
+        #parameters=[robot_description],
+        #output="screen",
+    #)
+
     spawner_teleop_controller = Node(
         package="controller_manager",
         executable="spawner",
         arguments=[
             "kinematic_guides_cartesian_velocity",
-            "--controller-manager",
-            "/controller_manager",
+            "--controller-manager", "/controller_manager",
+            "--param-file", velocity_config,
         ],
         output="screen",
     )
+
 
     # --- Teleoperation Node ---
     teleop_config_file = PathJoinSubstitution(

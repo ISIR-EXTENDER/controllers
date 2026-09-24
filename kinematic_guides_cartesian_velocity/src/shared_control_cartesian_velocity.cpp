@@ -3,6 +3,9 @@
 #include <chrono>
 #include <functional>
 #include "apriltag_ros2/msg/detected_goal_array.hpp" //202603
+#include <rclcpp/rclcpp.hpp>
+#include <chrono>
+#include <memory>
 
 namespace cartesian_velocity_controller
 {
@@ -199,7 +202,7 @@ namespace cartesian_velocity_controller
   bool SharedControlVelocityController::init_robot_interface()
   {
     auto node = get_node();
-    std::string robot_type, base_frame, tool_frame, robot_description;
+    /*std::string robot_type, base_frame, tool_frame, robot_description;
 
     declare_and_get_parameters("robot_type", robot_type, std::string("kinova_velocity"));
     declare_and_get_parameters("tool_frame", tool_frame, std::string("end_effector_link"));
@@ -208,6 +211,46 @@ namespace cartesian_velocity_controller
     if (!node->get_parameter("robot_description", robot_description))
     {
       RCLCPP_ERROR(node->get_logger(), "Missing robot_description");
+      return false;
+    }*/
+
+    std::string robot_type, base_frame, tool_frame, robot_description;
+
+    declare_and_get_parameters("robot_type", robot_type, std::string("kinova_velocity"));
+    declare_and_get_parameters("tool_frame", tool_frame, std::string("end_effector_link"));
+    declare_and_get_parameters("command_names", command_names_, std::vector<std::string>{});
+
+    // Get robot_description from /controller_manager via parameter client
+    std::string robot_description_origin = "/controller_manager";
+    try
+    {
+      auto temp_node = std::make_shared<rclcpp::Node>(
+        "temp_param_client_node",
+        rclcpp::NodeOptions().use_intra_process_comms(false)
+      );
+      
+      rclcpp::SyncParametersClient param_client(temp_node, robot_description_origin);
+      
+      RCLCPP_INFO(node->get_logger(),
+        "Waiting for parameter service on %s...", robot_description_origin.c_str());
+      
+      if (!param_client.wait_for_service(std::chrono::seconds(5)))
+      {
+        RCLCPP_ERROR(node->get_logger(),
+          "Parameter service not available on %s", robot_description_origin.c_str());
+        return false;
+      }
+      
+      robot_description = param_client.get_parameter<std::string>("robot_description");
+      
+      RCLCPP_INFO(node->get_logger(),
+        "Successfully retrieved robot_description (%zu characters)", robot_description.size());
+    }
+    catch (const std::exception &e)
+    {
+      RCLCPP_ERROR(node->get_logger(),
+        "Failed to get 'robot_description' from %s: %s",
+        robot_description_origin.c_str(), e.what());
       return false;
     }
 
